@@ -67,7 +67,7 @@
             let currentThrust = 0;
 
             // Load A330 model
-            const airplaneUri = await Cesium.IonResource.fromAssetId(YOUR_ASSET_ID); // Replace with your asset ID
+            const airplaneUri = await Cesium.IonResource.fromAssetId(3701524); // Replace with your asset ID
             const planeEntity = viewer.entities.add({
                 position: Cesium.Cartesian3.fromDegrees(longitude, latitude, altitude),
                 model: {

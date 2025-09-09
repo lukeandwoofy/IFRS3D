@@ -1,23 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>A330-200 Cesium Flight Simulator</title>
     <script src="https://cesium.com/downloads/cesiumjs/releases/1.133/Build/Cesium/Cesium.js"></script>
-    <link href="https://cesium.com/downloads/cesiumjs/releases/1.133/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.133/Build/Cesium/Widgets/widgets.css" rel="stylesheet"/>
     <style>
         body { margin: 0; overflow: hidden; }
         #cesiumContainer { width: 100%; height: 100%; }
-        #login { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; z-index: 100; }
-        #hud { position: absolute; top: 10px; left: 10px; color: white; font-family: monospace; z-index: 100; }
+        #login {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center; z-index: 100;
+            background: rgba(0,0,0,0.6); padding: 20px; border-radius: 8px;
+            color: white;
+        }
+        #hud {
+            position: absolute; top: 10px; left: 10px;
+            color: white; font-family: monospace; z-index: 100;
+            background: rgba(0,0,0,0.4); padding: 5px 10px; border-radius: 4px;
+        }
     </style>
 </head>
 <body>
     <div id="login">
         <h1>A330-200 Flight Sim Login</h1>
         <form id="loginForm">
-            <input type="password" id="password" placeholder="Enter password">
+            <input type="password" id="password" placeholder="Enter password"/>
             <button type="submit">Login</button>
         </form>
     </div>
@@ -31,6 +41,7 @@
     <script>
         const password = 'A330';
         const form = document.getElementById('loginForm');
+
         form.addEventListener('submit', (e) => {
             e.preventDefault();
             if (document.getElementById('password').value === password) {
@@ -48,7 +59,7 @@
                 terrain: Cesium.Terrain.fromWorldTerrain(),
             });
 
-            // ✅ FIX: Await the Promise before adding
+            // ✅ Await OSM Buildings before adding
             const osmBuildings = await Cesium.createOsmBuildingsAsync();
             viewer.scene.primitives.add(osmBuildings);
 
@@ -89,6 +100,7 @@
 
             // Animation loop
             viewer.clock.onTick.addEventListener(() => {
+                // Controls
                 if (keys['w']) pitch = Math.max(pitch - 0.01, -Math.PI / 2);
                 if (keys['s']) pitch = Math.min(pitch + 0.01, Math.PI / 2);
                 if (keys['a']) roll -= 0.01;
@@ -99,9 +111,11 @@
                 if (keys['ArrowDown']) currentThrust = Math.max(currentThrust - 0.01, 0);
                 if (keys['v']) viewMode = viewMode === 'third' ? 'first' : 'third';
 
+                // Dampen
                 roll *= 0.98;
                 pitch *= 0.98;
 
+                // Physics
                 velocity += currentThrust * thrust - velocity * dragFactor;
                 verticalVelocity += Math.sin(pitch) * velocity * liftFactor - gravity;
                 const distance = velocity / 3600;
@@ -109,6 +123,7 @@
                 latitude += Math.sin(heading) * distance * Math.cos(pitch);
                 altitude += verticalVelocity;
 
+                // Terrain collision
                 Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [
                     Cesium.Cartographic.fromDegrees(longitude, latitude)
                 ]).then((samples) => {
@@ -116,12 +131,14 @@
                     altitude = Math.max(altitude, terrainHeight + 10);
                 });
 
+                // Update plane
                 planeEntity.position = Cesium.Cartesian3.fromDegrees(longitude, latitude, altitude);
                 planeEntity.orientation = Cesium.Transforms.headingPitchRollQuaternion(
                     planeEntity.position,
                     new Cesium.HeadingPitchRoll(heading, pitch, roll)
                 );
 
+                // Camera views
                 if (viewMode === 'third') {
                     viewer.camera.lookAt(
                         planeEntity.position,
@@ -139,6 +156,7 @@
                     viewer.camera.lookAtTransform(transform, new Cesium.HeadingPitchRange(0, 0, 0));
                 }
 
+                // HUD
                 document.getElementById('speed').textContent = Math.round(velocity * 1.944);
                 document.getElementById('altitude').textContent = Math.round(altitude * 3.281);
                 document.getElementById('heading').textContent = Math.round((Cesium.Math.toDegrees(heading) + 360) % 360);

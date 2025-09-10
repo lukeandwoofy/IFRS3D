@@ -16,7 +16,7 @@ body {
   transform: translate(-50%, -50%);
   text-align: center;
   z-index: 100;
-  background: linear-gradient(to bottom right, #003366, #001a33);
+  background: linear-gradient(to bottom right, #003366, #1782A2);
   padding: 30px;
   border-radius: 12px;
   box-shadow: 0 0 20px rgba(0,0,0,0.7);

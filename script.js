@@ -12,7 +12,7 @@ form.addEventListener('submit', (e) => {
 });
 
 async function initSim() {
-  Cesium.Ion.defaultAccessToken = 'YOUR_TOKEN_HERE';
+  Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NDIwYmNkOS03MTExLTRjZGEtYjI0Yy01ZmIzYzJmOGFjNGEiLCJpZCI6MzM5NTE3LCJpYXQiOjE3NTczNTg4Mzd9.3gkVP8epIlHiy3MtC2GnDgLhvD4XbhfIsWfzuyYjDZQ';
 
   const viewer = new Cesium.Viewer('cesiumContainer', {
     terrain: Cesium.Terrain.fromWorldTerrain(),
@@ -37,7 +37,7 @@ async function initSim() {
   let currentThrust = 0;
 
   // Load aircraft model
-  const airplaneUri = await Cesium.IonResource.fromAssetId(YOUR_ASSET_ID); // Replace with your asset ID
+  const airplaneUri = await Cesium.IonResource.fromAssetId(3701524); // Replace with your asset ID
   const planeEntity = viewer.entities.add({
     position: Cesium.Cartesian3.fromDegrees(longitude, latitude, altitude),
     model: {

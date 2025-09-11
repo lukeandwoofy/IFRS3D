@@ -88,7 +88,7 @@ async function initSim() {
   if (viewLabel) viewLabel.textContent = 'Orbit';
 
   // 4) Load aircraft model
-  const airplaneUri = await Cesium.IonResource.fromAssetId(3701524); // <- replace with your .glb/.gltf ion assetId
+  const airplaneUri = await Cesium.IonResource.fromAssetId(3709634); // <- replace with your .glb/.gltf ion assetId
 
   // Get initial terrain height at LPPT and set start height
   const startSamples = await Cesium.sampleTerrainMostDetailed(

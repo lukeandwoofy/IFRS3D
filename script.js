@@ -25,7 +25,7 @@ form.addEventListener('submit', (e) => {
 
 // ====== Main init ======
 async function initSim() {
-  Cesium.Ion.defaultAccessToken = 'YOUR_TOKEN_HERE';
+  Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NDIwYmNkOS03MTExLTRjZGEtYjI0Yy01ZmIzYzJmOGFjNGEiLCJpZCI6MzM5NTE3LCJpYXQiOjE3NTczNTg4Mzd9.3gkVP8epIlHiy3MtC2GnDgLhvD4XbhfIsWfzuyYjDZQ';
 
   const viewer = new Cesium.Viewer('cesiumContainer', {
     terrain: Cesium.Terrain.fromWorldTerrain(),
@@ -86,7 +86,7 @@ async function initSim() {
   if (viewLabel) viewLabel.textContent = 'Third';
 
   // Load aircraft model
-  const airplaneUri = await Cesium.IonResource.fromAssetId(YOUR_ASSET_ID); // replace
+  const airplaneUri = await Cesium.IonResource.fromAssetId(3701524); // replace
   const startCarto = new Cesium.Cartographic(longitude, latitude, height);
   const startCart = Cesium.Cartesian3.fromRadians(startCarto.longitude, startCarto.latitude, startCarto.height);
 

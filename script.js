@@ -274,7 +274,7 @@ async function fetchWeather(latDeg, lonDeg) {
       // return { clouds, tempC: temp, precipRate: precip, condition: mainCond };
 
       throw new Error('Unknown provider');
-    }
+    
   } catch (e) {
     console.warn('Weather fetch error:', e);
     return null;

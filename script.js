@@ -243,27 +243,24 @@ async function initWeather() {
   await updateWeather(true);
 }
 
-// Fetch weather from provider at current aircraft location
 async function fetchWeather(latDeg, lonDeg) {
-  const key = CONFIG.WEATHER.API_KEY;
-  const provider = CONFIG.WEATHER.PROVIDER;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${latDeg}&longitude=${lonDeg}&current=temperature_2m,precipitation,cloudcover&timezone=auto`;
   try {
-    if (provider === 'openweathermap') {
-      // Current weather
-      const url = `https://api.openweathermap.org/data/2.5/weather?lat=${latDeg}&lon=${lonDeg}&appid=${key}&units=metric`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('OWM fetch failed');
-      const j = await res.json();
-      // Map to normalized fields
-      const clouds = j.clouds && typeof j.clouds.all === 'number' ? j.clouds.all : 0;
-      const temp = j.main && typeof j.main.temp === 'number' ? j.main.temp : 15;
-      // Precip mm/h approximations
-      const rain = j.rain && (j.rain['1h'] || j.rain['3h'] / 3) ? (j.rain['1h'] || j.rain['3h'] / 3) : 0;
-      const snow = j.snow && (j.snow['1h'] || j.snow['3h'] / 3) ? (j.snow['1h'] || j.snow['3h'] / 3) : 0;
-      const precip = Math.max(rain, snow); // pick the stronger
-      const mainCond = j.weather && j.weather[0] && j.weather[0].main ? j.weather[0].main : 'Clear';
-      return { clouds, tempC: temp, precipRate: precip, condition: mainCond };
-    } else {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Open-Meteo fetch failed');
+    const j = await res.json();
+    const current = j.current;
+    return {
+      clouds: current.cloudcover || 0,
+      tempC: current.temperature_2m || 15,
+      precipRate: current.precipitation || 0,
+      condition: current.precipitation > 0 ? 'Rain' : current.cloudcover > 50 ? 'Clouds' : 'Clear'
+    };
+  } catch (e) {
+    console.warn('Weather fetch error:', e);
+    return null;
+  }
+}
       // Weatherbit example mapping (uncomment to use Weatherbit)
       // const url = `https://api.weatherbit.io/v2.0/current?lat=${latDeg}&lon=${lonDeg}&key=${key}`;
       // const res = await fetch(url);

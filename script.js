@@ -1,36 +1,29 @@
 // script.js
 // ==================================================================================================
-// Headwind A330-900neo browser flight sim for CesiumJS — ultra-extended version with:
-// - Accurate runway spawn and heading alignment (LPPT Runway 03 threshold by default)
-// - Robust physics loop with ground roll, thrust, lift, drag, and attitude dynamics
-// - Fixed forward motion on thrust, preventing sideways drift bugs
-// - Open-Meteo live weather (no API key) with clouds, rain/snow particles, overcast sky tint
-// - Cloud billboard ring system that follows the aircraft
-// - Wind drift (optional) with proper meteorological direction handling
-// - Camera modes: Orbit (trackedEntity), Chase, and First-Person with smoothing
-// - HUD for speed/altitude/heading + status labels for view mode and ground contact
-// - Debug overlay for deep inspection (toggleable)
-// - Terrain clamping with gear clearance to avoid sinking or floating
-// - RequestRenderMode-friendly updates and throttled weather/terrain sampling
-// - Heavy inline documentation, sanitized for browser delivery
+// Headwind A330-900neo Cesium flight sim — extended build with:
+// - Fixed thrust and forward motion aligned to heading (no sideways drift)
+// - Accurate runway-aligned spawn using terrain sampling (LPPT RWY 03 default)
+// - Open‑Meteo live weather (no API key): clouds, rain/snow particles, sky tint
+// - Camera modes (Orbit/Chase/First), HUD, debug overlay, performance throttles
+// - Passenger tab system:
+//     * Press "2" to open a right-side setup panel inside the sim
+//     * Choose Airline, Aircraft, Destination/Arrival details
+//     * Press "Create Tab" to open a separate browser tab with IFE-style passenger page
+//     * Passenger page shows live map (Leaflet.js), route progress, air data
 //
-// Replace the placeholders:
-//   - CONFIG.CESIUM_TOKEN with your Cesium ion token
-//   - CONFIG.MODEL.AIRCRAFT_ASSET_ID with your uploaded aircraft GLB/GTLF asset ID
+// Integration reminders:
+//   - Replace CONFIG.CESIUM_TOKEN and CONFIG.MODEL.AIRCRAFT_ASSET_ID
+//   - Ensure HTML contains: #login, #loginForm, #password, #loading, #cesiumContainer, #hud + spans
+//   - This script lazy-loads Leaflet for the IFE tab automatically
 //
 // Keyboard:
 //   - Throttle: ArrowUp/ArrowDown
-//   - Pitch: W/S
+//   - Pitch: W/S (negative pitch = nose up)
 //   - Roll: A/D
 //   - Yaw: Q/E
-//   - View: V
-//   - Debug toggle (optional wiring): backtick ` or F8 (if wired below)
-//
-// HTML expected IDs:
-//   - #login #loginForm #password
-//   - #loading
-//   - #cesiumContainer
-//   - #hud with spans #speed #altitude #heading #viewmode #ground
+//   - View: V (Orbit -> Chase -> First)
+//   - Toggle Passenger setup panel: 2
+//   - Debug overlay toggle: ` (backtick) or F8
 //
 // ==================================================================================================
 
@@ -71,24 +64,24 @@ form?.addEventListener('submit', (e) => {
 
 const CONFIG = {
   // Cesium ion access
-  CESIUM_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NDIwYmNkOS03MTExLTRjZGEtYjI0Yy01ZmIzYzJmOGFjNGEiLCJpZCI6MzM5NTE3LCJpYXQiOjE3NTczNTg4Mzd9.3gkVP8epIlHiy3MtC2GnDgLhvD4XbhfIsWfzuyYjDZQ', // <-- paste your Cesium ion token here
+  CESIUM_TOKEN: 'YOUR_TOKEN_HERE', // <-- paste your Cesium ion token here
 
   // Terrain
   USE_FLAT_TERRAIN: false,
 
   // Spawn (LPPT runway 03 threshold; adjust to your runway if desired)
   SPAWN: {
-    LON_DEG: -9.13580,  // approx LPPT RWY03 threshold longitudinal coordinate
-    LAT_DEG: 38.78120,  // approx LPPT RWY03 threshold latitudinal coordinate
-    HEADING_DEG: 30.0,  // runway 03 magnetic approx; for visual alignment
-    // If you want to spawn mid-runway or at another airport, change these
+    LON_DEG: -9.13580,
+    LAT_DEG: 38.78120,
+    HEADING_DEG: 30.0 // runway 03 ~030°
   },
 
   // Model (Cesium ion asset)
   MODEL: {
-    AIRCRAFT_ASSET_ID: 3713684, // <-- replace with your Cesium ion asset ID (number)
+    AIRCRAFT_ASSET_ID: YOUR_ASSET_ID, // <-- replace with your Cesium ion asset ID (number)
     SCALE: 1.0,
-    MIN_PIXEL_SIZE: 96
+    MIN_PIXEL_SIZE: 96,
+    RUN_ANIMATIONS: false
   },
 
   // Viewer
@@ -103,18 +96,18 @@ const CONFIG = {
   // Physics
   PHYSICS: {
     G: 9.81,
-    MAX_THRUST_ACCEL: 12.0,     // higher value for snappy ground roll
-    DRAG_COEFF: 0.006,          // tuned linear-ish drag
-    LIFT_COEFF: 0.95,           // naive lift proportional to speed * sin(-pitch)
-    GEAR_HEIGHT: 2.8,           // gear clearance above terrain
-    TAKEOFF_SPEED: 75.0,        // ~145 kts
-    MAX_BANK_RATE: 0.9,         // rad/s
-    MAX_PITCH_RATE: 0.75,       // rad/s
-    MAX_YAW_RATE: 0.9,          // rad/s
-    THRUST_RAMP: 2.0,           // thrust increase per second
-    THRUST_DECAY: 2.0,          // thrust decrease per second
-    GROUND_STEER_RATE: 0.8,     // yaw rate while on ground using Q/E
-    SIDE_DRIFT_DAMP: 0.9,       // damping factor to reduce unintended lateral drift
+    MAX_THRUST_ACCEL: 12.0,
+    DRAG_COEFF: 0.006,
+    LIFT_COEFF: 0.95,
+    GEAR_HEIGHT: 2.8,
+    TAKEOFF_SPEED: 75.0,
+    MAX_BANK_RATE: 0.9,
+    MAX_PITCH_RATE: 0.75,
+    MAX_YAW_RATE: 0.9,
+    GROUND_STEER_RATE: 0.8,
+    THRUST_RAMP: 2.0,
+    THRUST_DECAY: 2.0,
+    SIDE_DRIFT_DAMP: 0.9,
     ROLL_DAMP_AIR: 0.995,
     PITCH_DAMP_AIR: 0.995
   },
@@ -131,16 +124,16 @@ const CONFIG = {
   // Weather (Open-Meteo)
   WEATHER: {
     ENABLED: true,
-    UPDATE_SECONDS: 180,           // every 3 minutes
-    CLOUDS_OVERCAST_THRESHOLD: 75, // %
-    CLOUD_LAYER_ALT_M: 1600,       // AGL offset
+    UPDATE_SECONDS: 180,
+    CLOUDS_OVERCAST_THRESHOLD: 75,
+    CLOUD_LAYER_ALT_M: 1600,
     CLOUD_RADIUS_M: 1700,
     CLOUD_SPRITES_MAX: 34,
-    PRECIP_MIN: 0.05,              // mm/h
-    HEAVY_MM_H: 3.5,               // heavy rain scaling
+    PRECIP_MIN: 0.05,
+    HEAVY_MM_H: 3.5,
     SNOW_TEMP_C: 0.0,
-    ENABLE_WIND: false,            // enable simple wind drift model
-    WIND_SCALE: 0.14               // drift scale factor
+    ENABLE_WIND: false,
+    WIND_SCALE: 0.14
   },
 
   // Debug overlay
@@ -151,7 +144,24 @@ const CONFIG = {
 
   // Sampling
   SAMPLING: {
-    TERRAIN_STEPS: 8 // every N frames we sample terrain
+    TERRAIN_STEPS: 8
+  },
+
+  // Passenger tab
+  PASSENGER: {
+    PANEL_ID: 'passengerPanel',
+    BTN_ID: 'passengerCreateBtn',
+    DEFAULT_AIRLINE: 'Headwind',
+    DEFAULT_AIRCRAFT: 'Airbus A330-900neo',
+    DEFAULT_FLIGHT: 'HW123',
+    DEFAULT_ORIGIN: 'LPPT',
+    DEFAULT_DEST: 'EGLL',
+    DEFAULT_ORIGIN_NAME: 'Lisbon',
+    DEFAULT_DEST_NAME: 'London Heathrow',
+    DEFAULT_DEPARTURE_TIME_LOCAL: '',
+    DEFAULT_ARRIVAL_TIME_LOCAL: '',
+    LEAFLET_CSS: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+    LEAFLET_JS: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
   }
 };
 
@@ -165,6 +175,7 @@ const deg2rad = (d) => Cesium.Math.toRadians(d);
 const rad2deg = (r) => Cesium.Math.toDegrees(r);
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const nmFromMeters = (m) => m / 1852;
 
 function hprQuaternion(position, heading, pitch, roll) {
   return Cesium.Transforms.headingPitchRollQuaternion(
@@ -173,7 +184,6 @@ function hprQuaternion(position, heading, pitch, roll) {
   );
 }
 
-// Ensure a unit vector (avoids NaNs in corner cases)
 function normalize3(out, v) {
   const m = Math.hypot(v.x, v.y, v.z);
   if (m > 1e-9) {
@@ -182,6 +192,27 @@ function normalize3(out, v) {
     out.x = 1; out.y = 0; out.z = 0;
   }
   return out;
+}
+
+function loadExternalScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+function loadExternalStyle(href) {
+  return new Promise((resolve, reject) => {
+    const l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = href;
+    l.onload = resolve;
+    l.onerror = reject;
+    document.head.appendChild(l);
+  });
 }
 
 
@@ -196,12 +227,12 @@ const SimState = {
 
   // Pose
   heading: deg2rad(CONFIG.SPAWN.HEADING_DEG),
-  pitch: 0.0, // negative is nose up
+  pitch: 0.0, // negative = nose up
   roll: 0.0,
 
   // Speeds
   speed: 0.0,          // forward m/s
-  verticalSpeed: 0.0,  // climb m/s
+  verticalSpeed: 0.0,  // m/s
   thrustInput: 0.0,    // 0..1
 
   onGround: true,
@@ -215,7 +246,7 @@ const SimState = {
   lastTime: undefined,
 
   // Camera
-  viewMode: 'orbit', // orbit | chase | first
+  viewMode: 'orbit',
   canToggleView: true,
   camPosSmooth: null,
 
@@ -226,18 +257,33 @@ const SimState = {
   sampleCounter: 0,
   sampling: false,
 
-  // Internal to reduce sideways drift
-  lastENUForward: new Cesium.Cartesian3(1, 0, 0)
+  // Passenger tab bridge
+  passengerWin: null,
+  paxConfig: {
+    airline: CONFIG.PASSENGER.DEFAULT_AIRLINE,
+    aircraft: CONFIG.PASSENGER.DEFAULT_AIRCRAFT,
+    flight: CONFIG.PASSENGER.DEFAULT_FLIGHT,
+    origin: CONFIG.PASSENGER.DEFAULT_ORIGIN,
+    destination: CONFIG.PASSENGER.DEFAULT_DEST,
+    originName: CONFIG.PASSENGER.DEFAULT_ORIGIN_NAME,
+    destinationName: CONFIG.PASSENGER.DEFAULT_DEST_NAME,
+    departureLocal: CONFIG.PASSENGER.DEFAULT_DEPARTURE_TIME_LOCAL,
+    arrivalLocal: CONFIG.PASSENGER.DEFAULT_ARRIVAL_TIME_LOCAL
+  },
+
+  // Route (optional): can be populated from SimBrief later
+  routePositions: [], // array of Cesium.Cartesian3 for route polyline
+  routeEntity: null
 };
 
 const WeatherState = {
   lastUpdate: 0,
   data: null,
-  cloudiness: 0,   // %
-  precipRate: 0,   // mm/h
+  cloudiness: 0,
+  precipRate: 0,
   tempC: 20,
-  windDirDeg: 0,   // meteorological direction (FROM)
-  windSpeed: 0,    // m/s
+  windDirDeg: 0,
+  windSpeed: 0,
   condition: 'Clear',
 
   cloudBillboards: null,
@@ -256,7 +302,15 @@ const DebugState = {
 // 4) Input
 // ==================================================================================================
 
-document.addEventListener('keydown', (e) => (SimState.keys[e.key] = true));
+document.addEventListener('keydown', (e) => {
+  SimState.keys[e.key] = true;
+  if (e.key === '`' || e.key === 'F8') {
+    toggleDebug();
+  }
+  if (e.key === '2') {
+    togglePassengerPanel();
+  }
+});
 document.addEventListener('keyup', (e) => (SimState.keys[e.key] = false));
 
 
@@ -363,7 +417,7 @@ async function initSim() {
   }
   SimState.height = terrainH + CONFIG.PHYSICS.GEAR_HEIGHT;
 
-  // Create the model entity aligned to runway heading
+  // Load aircraft model
   const pos = Cesium.Cartesian3.fromRadians(SimState.lon, SimState.lat, SimState.height);
   const modelUri = await Cesium.IonResource.fromAssetId(CONFIG.MODEL.AIRCRAFT_ASSET_ID);
   const planeEntity = viewer.entities.add({
@@ -372,7 +426,7 @@ async function initSim() {
       uri: modelUri,
       scale: CONFIG.MODEL.SCALE,
       minimumPixelSize: CONFIG.MODEL.MIN_PIXEL_SIZE,
-      runAnimations: false
+      runAnimations: CONFIG.MODEL.RUN_ANIMATIONS
     },
     orientation: hprQuaternion(pos, SimState.heading, SimState.pitch, SimState.roll)
   });
@@ -399,10 +453,13 @@ async function initSim() {
     await initWeather();
   }
 
-  // Debug overlay optional
+  // Build passenger setup panel (hidden by default)
+  buildPassengerPanel();
+
+  // Debug overlay
   createDebugOverlay();
 
-  // Start main loop
+  // Main loop
   viewer.clock.onTick.addEventListener(onTick);
 }
 
@@ -415,12 +472,7 @@ async function initSim() {
 async function initWeather() {
   const v = SimState.viewer;
   WeatherState.cloudBillboards = v.scene.primitives.add(new Cesium.BillboardCollection({ scene: v.scene }));
-  // Pre-seed empty cloud ring
-  createOrUpdateCloudSprites({
-    cloudiness: 0,
-    altitudeAGL: CONFIG.WEATHER.CLOUD_LAYER_ALT_M,
-    radius: CONFIG.WEATHER.CLOUD_RADIUS_M
-  });
+  createOrUpdateCloudSprites({ cloudiness: 0, altitudeAGL: CONFIG.WEATHER.CLOUD_LAYER_ALT_M, radius: CONFIG.WEATHER.CLOUD_RADIUS_M });
   await updateWeather(true);
 }
 
@@ -473,21 +525,21 @@ function applyWeatherVisuals() {
   const precip = WeatherState.precipRate;
   const tempC = WeatherState.tempC;
 
-  // Overcast sky tint
+  // Overcast atmosphere tint
   const atm = v.scene.skyAtmosphere;
   const overcast = clouds >= CONFIG.WEATHER.CLOUDS_OVERCAST_THRESHOLD;
   atm.hueShift = overcast ? -0.02 : 0.0;
   atm.saturationShift = overcast ? -0.2 : 0.0;
   atm.brightnessShift = overcast ? -0.1 : 0.0;
 
-  // Cloud ring
+  // Cloud sprites
   createOrUpdateCloudSprites({
     cloudiness: clouds,
     altitudeAGL: CONFIG.WEATHER.CLOUD_LAYER_ALT_M,
     radius: CONFIG.WEATHER.CLOUD_RADIUS_M
   });
 
-  // Precip
+  // Precipitation
   const isSnow = (tempC <= CONFIG.WEATHER.SNOW_TEMP_C) && (precip > CONFIG.WEATHER.PRECIP_MIN);
   const isRain = (tempC > CONFIG.WEATHER.SNOW_TEMP_C) && (precip > CONFIG.WEATHER.PRECIP_MIN);
 
@@ -517,7 +569,6 @@ function createOrUpdateCloudSprites({ cloudiness, altitudeAGL, radius }) {
   const max = CONFIG.WEATHER.CLOUD_SPRITES_MAX;
   const target = Math.round(clamp01(cloudiness / 100) * max);
 
-  // adjust count
   while (bbs.length < target) {
     bbs.add({
       image: generateCloudSprite(),
@@ -688,11 +739,331 @@ function updatePrecipModelMatrix() {
 
 
 // ==================================================================================================
-// 8) Main loop
+// 8) Passenger setup panel + IFE tab
+// ==================================================================================================
+
+function buildPassengerPanel() {
+  // Create panel container
+  let panel = document.getElementById(CONFIG.PASSENGER.PANEL_ID);
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = CONFIG.PASSENGER.PANEL_ID;
+    panel.style.position = 'absolute';
+    panel.style.top = '60px';
+    panel.style.right = '16px';
+    panel.style.width = '340px';
+    panel.style.maxHeight = '80vh';
+    panel.style.overflow = 'auto';
+    panel.style.background = 'rgba(0,0,0,0.85)';
+    panel.style.color = '#fff';
+    panel.style.padding = '12px 14px';
+    panel.style.borderRadius = '8px';
+    panel.style.fontFamily = 'system-ui, sans-serif';
+    panel.style.fontSize = '14px';
+    panel.style.display = 'none';
+    panel.style.zIndex = '9999';
+    panel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-weight:600;font-size:16px;">Passenger tab setup</div>
+        <button id="paxCloseBtn" style="background:#444;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;">✕</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <label>Airline<input id="paxAirline" type="text" value="${SimState.paxConfig.airline}" style="width:100%"></label>
+        <label>Aircraft<input id="paxAircraft" type="text" value="${SimState.paxConfig.aircraft}" style="width:100%"></label>
+        <label>Flight #<input id="paxFlight" type="text" value="${SimState.paxConfig.flight}" style="width:100%"></label>
+        <label>Origin ICAO<input id="paxOrigin" type="text" value="${SimState.paxConfig.origin}" style="width:100%"></label>
+        <label>Destination ICAO<input id="paxDestination" type="text" value="${SimState.paxConfig.destination}" style="width:100%"></label>
+        <label>Origin name<input id="paxOriginName" type="text" value="${SimState.paxConfig.originName}" style="width:100%"></label>
+        <label>Destination name<input id="paxDestinationName" type="text" value="${SimState.paxConfig.destinationName}" style="width:100%"></label>
+        <label>Sched. Dep (local)<input id="paxDepLocal" type="text" value="${SimState.paxConfig.departureLocal}" placeholder="e.g. 09:30" style="width:100%"></label>
+        <label>Sched. Arr (local)<input id="paxArrLocal" type="text" value="${SimState.paxConfig.arrivalLocal}" placeholder="e.g. 11:45" style="width:100%"></label>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;">
+        <button id="${CONFIG.PASSENGER.BTN_ID}" style="flex:1;background:#198754;color:#fff;border:none;padding:8px;border-radius:6px;cursor:pointer;">Create Tab</button>
+        <button id="paxRefreshBtn" style="flex:1;background:#0d6efd;color:#fff;border:none;padding:8px;border-radius:6px;cursor:pointer;">Reconnect</button>
+      </div>
+      <p style="margin-top:8px;color:#aaa;">Tip: Press "2" anytime to show/hide this panel.</p>
+    `;
+    document.body.appendChild(panel);
+  }
+
+  // Close button
+  panel.querySelector('#paxCloseBtn')?.addEventListener('click', () => {
+    panel.style.display = 'none';
+  });
+
+  // Create Tab button
+  document.getElementById(CONFIG.PASSENGER.BTN_ID)?.addEventListener('click', async () => {
+    // Update config from inputs
+    SimState.paxConfig.airline = document.getElementById('paxAirline').value.trim();
+    SimState.paxConfig.aircraft = document.getElementById('paxAircraft').value.trim();
+    SimState.paxConfig.flight = document.getElementById('paxFlight').value.trim();
+    SimState.paxConfig.origin = document.getElementById('paxOrigin').value.trim().toUpperCase();
+    SimState.paxConfig.destination = document.getElementById('paxDestination').value.trim().toUpperCase();
+    SimState.paxConfig.originName = document.getElementById('paxOriginName').value.trim();
+    SimState.paxConfig.destinationName = document.getElementById('paxDestinationName').value.trim();
+    SimState.paxConfig.departureLocal = document.getElementById('paxDepLocal').value.trim();
+    SimState.paxConfig.arrivalLocal = document.getElementById('paxArrLocal').value.trim();
+
+    // Lazy-load Leaflet in the main page as well (for icon CSS reuse if needed)
+    await ensureLeafletLoaded();
+
+    // Open or reuse passenger window
+    if (!SimState.passengerWin || SimState.passengerWin.closed) {
+      SimState.passengerWin = window.open('', '_blank', 'noopener,noreferrer');
+    } else {
+      SimState.passengerWin.focus();
+    }
+
+    // Inject IFE HTML
+    writePassengerWindow(SimState.passengerWin, SimState.paxConfig);
+
+    // Start messaging loop to the passenger tab
+    startPassengerMessaging();
+  });
+
+  // Reconnect button
+  document.getElementById('paxRefreshBtn')?.addEventListener('click', () => {
+    if (SimState.passengerWin && !SimState.passengerWin.closed) {
+      startPassengerMessaging(true);
+      SimState.passengerWin.focus();
+    } else {
+      alert('Passenger tab is not open. Click Create Tab first.');
+    }
+  });
+}
+
+function togglePassengerPanel() {
+  const panel = document.getElementById(CONFIG.PASSENGER.PANEL_ID);
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+async function ensureLeafletLoaded() {
+  // If L exists, assume loaded
+  if (typeof window.L !== 'undefined') return;
+  await loadExternalStyle(CONFIG.PASSENGER.LEAFLET_CSS);
+  await loadExternalScript(CONFIG.PASSENGER.LEAFLET_JS);
+}
+
+function writePassengerWindow(win, cfg) {
+  // Base HTML with Leaflet placeholders
+  const doc = win.document;
+  doc.open();
+  doc.write(`
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Passenger View — ${cfg.flight}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="${CONFIG.PASSENGER.LEAFLET_CSS}">
+  <style>
+    html, body { margin:0; padding:0; background:#0b0d10; color:#e7e9ec; font-family:system-ui, sans-serif; }
+    header { padding:12px 16px; background:#11161a; border-bottom:1px solid #1a232b; display:flex; justify-content:space-between; align-items:center; }
+    .brand { font-size:16px; font-weight:600; }
+    .meta { font-size:13px; color:#b8c1ca; }
+    main { display:grid; grid-template-columns: 1fr; gap:12px; padding:12px; }
+    .card { background:#0f1418; border:1px solid #182028; border-radius:8px; padding:12px; }
+    .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    #map { height: 360px; border-radius:8px; }
+    .row { display:flex; justify-content:space-between; padding:4px 0; }
+    .label { color:#9aa7b4; }
+    .value { color:#e7e9ec; font-weight:600; }
+    footer { padding:8px 16px; color:#95a2ae; font-size:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="brand" id="paxTitle">${cfg.airline} — ${cfg.aircraft}</div>
+      <div class="meta" id="paxSub">${cfg.flight} • ${cfg.origin} (${cfg.originName}) → ${cfg.destination} (${cfg.destinationName})</div>
+    </div>
+    <div class="meta">
+      Dep: <span id="depLocal">${cfg.departureLocal || '--:--'}</span> • Arr: <span id="arrLocal">${cfg.arrivalLocal || '--:--'}</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid-2">
+      <div class="card">
+        <div id="map"></div>
+      </div>
+      <div class="card">
+        <div class="row"><div class="label">Position</div><div class="value"><span id="lat">--</span>, <span id="lon">--</span></div></div>
+        <div class="row"><div class="label">Altitude</div><div class="value"><span id="alt">--</span> ft</div></div>
+        <div class="row"><div class="label">Speed</div><div class="value"><span id="spd">--</span> kts</div></div>
+        <div class="row"><div class="label">Heading</div><div class="value"><span id="hdg">--</span>°</div></div>
+        <div class="row"><div class="label">Distance remaining</div><div class="value"><span id="distRem">--</span> nm</div></div>
+        <div class="row"><div class="label">Time remaining</div><div class="value"><span id="timeRem">--</span></div></div>
+        <div class="row"><div class="label">Weather</div><div class="value"><span id="wx">--</span></div></div>
+      </div>
+    </div>
+    <div class="card" id="routeInfo">Route not loaded</div>
+  </main>
+
+  <footer>Passenger information display • Live position updates from the flight sim</footer>
+
+  <script src="${CONFIG.PASSENGER.LEAFLET_JS}"></script>
+  <script>
+    let map, aircraftMarker, routePolyline, tail;
+    function initMap(lat=38.78, lon=-9.13) {
+      map = L.map('map', { zoomControl: true }).setView([lat, lon], 8);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+      aircraftMarker = L.marker([lat, lon]).addTo(map);
+      tail = L.polyline([], { color:'#0ff', weight:2, opacity:0.7 }).addTo(map);
+    }
+    function updateMap(lat, lon) {
+      if (!map) initMap(lat, lon);
+      aircraftMarker.setLatLng([lat, lon]);
+      const pts = tail.getLatLngs();
+      pts.push([lat, lon]);
+      if (pts.length > 2000) pts.shift();
+      tail.setLatLngs(pts);
+    }
+    function setRoute(coords) {
+      if (!map) initMap();
+      if (routePolyline) { routePolyline.remove(); }
+      routePolyline = L.polyline(coords, { color:'#ff0', weight:2 }).addTo(map);
+      map.fitBounds(routePolyline.getBounds().pad(0.2));
+    }
+    function setStats(data) {
+      document.getElementById('lat').textContent = data.lat.toFixed(4);
+      document.getElementById('lon').textContent = data.lon.toFixed(4);
+      document.getElementById('alt').textContent = Math.round(data.altFt);
+      document.getElementById('spd').textContent = Math.round(data.kts);
+      document.getElementById('hdg').textContent = Math.round(data.hdgDeg);
+      document.getElementById('distRem').textContent = data.distRemainingNm !== null ? Math.round(data.distRemainingNm) : '--';
+      document.getElementById('timeRem').textContent = data.timeRemainingStr || '--';
+      document.getElementById('wx').textContent = data.wx || '--';
+    }
+    function setMeta(cfg) {
+      document.getElementById('paxTitle').textContent = cfg.airline + ' — ' + cfg.aircraft;
+      document.getElementById('paxSub').textContent = cfg.flight + ' • ' + cfg.origin + ' (' + cfg.originName + ') → ' + cfg.destination + ' (' + cfg.destinationName + ')';
+      document.getElementById('depLocal').textContent = cfg.departureLocal || '--:--';
+      document.getElementById('arrLocal').textContent = cfg.arrivalLocal || '--:--';
+    }
+    function setRouteInfo(text) {
+      document.getElementById('routeInfo').textContent = text;
+    }
+
+    // Message bus
+    window.addEventListener('message', (evt) => {
+      const msg = evt.data || {};
+      if (msg.type === 'pax:init') {
+        setMeta(msg.cfg || {});
+        initMap(msg.lat || 38.78, msg.lon || -9.13);
+      } else if (msg.type === 'pax:pos') {
+        updateMap(msg.lat, msg.lon);
+        setStats(msg);
+      } else if (msg.type === 'pax:route') {
+        setRoute(msg.coords || []);
+        setRouteInfo(msg.info || 'Route loaded');
+      } else if (msg.type === 'pax:meta') {
+        setMeta(msg.cfg || {});
+      }
+    }, false);
+  </script>
+</body>
+</html>
+  `);
+  doc.close();
+}
+
+let paxMessengerTimer = null;
+function startPassengerMessaging(force = false) {
+  // Start periodic postMessage of position and stats
+  if (paxMessengerTimer && !force) return;
+
+  // Send initial meta and bootstrap
+  sendPassengerInit();
+
+  if (paxMessengerTimer) clearInterval(paxMessengerTimer);
+  paxMessengerTimer = setInterval(() => {
+    sendPassengerUpdate();
+  }, 1000);
+}
+
+function sendPassengerInit() {
+  if (!SimState.passengerWin || SimState.passengerWin.closed) return;
+  const lat = rad2deg(SimState.lat);
+  const lon = rad2deg(SimState.lon);
+  SimState.passengerWin.postMessage({
+    type: 'pax:init',
+    cfg: SimState.paxConfig,
+    lat, lon
+  }, '*');
+
+  // Send route if available
+  if (SimState.routePositions && SimState.routePositions.length > 1) {
+    const coords = SimState.routePositions.map(c => {
+      const carto = Cesium.Cartographic.fromCartesian(c);
+      return [rad2deg(carto.latitude), rad2deg(carto.longitude)];
+    });
+    SimState.passengerWin.postMessage({
+      type: 'pax:route',
+      coords,
+      info: `Route points: ${coords.length}`
+    }, '*');
+  }
+}
+
+function sendPassengerUpdate() {
+  if (!SimState.passengerWin || SimState.passengerWin.closed) return;
+
+  const latDeg = rad2deg(SimState.lat);
+  const lonDeg = rad2deg(SimState.lon);
+  const altFt = SimState.height * 3.28084;
+  const kts = SimState.speed * 1.94384;
+  const hdgDeg = (rad2deg(SimState.heading) + 360) % 360;
+
+  // If route + destination known, compute naive remaining distance to last route point
+  let distRemainingNm = null;
+  if (SimState.routePositions && SimState.routePositions.length > 0) {
+    const last = SimState.routePositions[SimState.routePositions.length - 1];
+    const cur = Cesium.Cartesian3.fromRadians(SimState.lon, SimState.lat, SimState.height);
+    const dMeters = Cesium.Cartesian3.distance(cur, last);
+    distRemainingNm = nmFromMeters(dMeters);
+  }
+
+  // Naive time remaining (min)
+  let timeRemainingStr = null;
+  if (distRemainingNm !== null && kts > 1) {
+    const hr = distRemainingNm / kts;
+    const min = Math.round(hr * 60);
+    const h = Math.floor(min / 60), m = min % 60;
+    timeRemainingStr = `${h}h ${m}m`;
+  }
+
+  // Weather summary
+  const wx = WeatherState.data ? `${WeatherState.condition}, ${WeatherState.cloudiness}% clouds, ${WeatherState.tempC.toFixed(0)}°C` : '';
+
+  SimState.passengerWin.postMessage({
+    type: 'pax:pos',
+    lat: latDeg,
+    lon: lonDeg,
+    altFt, kts, hdgDeg,
+    distRemainingNm,
+    timeRemainingStr,
+    wx
+  }, '*');
+
+  // Periodically resend meta in case of tab refresh
+  if (Math.random() < 0.05) {
+    SimState.passengerWin.postMessage({ type: 'pax:meta', cfg: SimState.paxConfig }, '*');
+  }
+}
+
+
+
+// ==================================================================================================
+// 9) Main simulation loop
 // ==================================================================================================
 
 function onTick(clock) {
-  // Delta time
+  // dt
   const now = clock.currentTime;
   const dtRaw = SimState.lastTime ? Cesium.JulianDate.secondsDifference(now, SimState.lastTime) : 1/60;
   const dt = clamp(dtRaw, 0.001, 0.1);
@@ -708,7 +1079,7 @@ function onTick(clock) {
   if (SimState.keys['ArrowUp']) SimState.thrustInput = Math.min(1, SimState.thrustInput + CONFIG.PHYSICS.THRUST_RAMP * dt);
   if (SimState.keys['ArrowDown']) SimState.thrustInput = Math.max(0, SimState.thrustInput - CONFIG.PHYSICS.THRUST_DECAY * dt);
 
-  // Controls: yaw (ground uses gentler steering rate)
+  // Controls: yaw
   if (SimState.onGround) {
     if (SimState.keys['q']) SimState.heading -= CONFIG.PHYSICS.GROUND_STEER_RATE * dt;
     if (SimState.keys['e']) SimState.heading += CONFIG.PHYSICS.GROUND_STEER_RATE * dt;
@@ -719,7 +1090,6 @@ function onTick(clock) {
 
   // Controls: pitch/roll
   if (SimState.onGround) {
-    // Ground: allow slight roll corrections, heavy damping, and rotate at/after Vr
     if (SimState.keys['a']) SimState.roll -= 0.25 * dt;
     if (SimState.keys['d']) SimState.roll += 0.25 * dt;
     SimState.roll *= Math.pow(0.1, dt);
@@ -746,72 +1116,53 @@ function onTick(clock) {
     SimState.viewer.trackedEntity = SimState.viewMode === 'orbit' ? SimState.planeEntity : undefined;
   }
 
-  // Normalize heading to [-PI, PI]
+  // Normalize heading
   if (SimState.heading > Math.PI) SimState.heading -= Math.PI * 2;
   if (SimState.heading < -Math.PI) SimState.heading += Math.PI * 2;
 
-  // Physics integration
+  // Physics: forward speed integration
   const accel = SimState.thrustInput * CONFIG.PHYSICS.MAX_THRUST_ACCEL - CONFIG.PHYSICS.DRAG_COEFF * SimState.speed;
   SimState.speed = Math.max(0, SimState.speed + accel * dt);
 
+  // Lift vs gravity (negative pitch => nose up)
   const lift = CONFIG.PHYSICS.LIFT_COEFF * SimState.speed * Math.sin(-SimState.pitch);
   SimState.verticalSpeed += (lift - CONFIG.PHYSICS.G) * dt;
   if (SimState.onGround) SimState.verticalSpeed = Math.max(0, SimState.verticalSpeed);
 
-  // Compute forward direction in local ENU (east, north, up)
+  // Motion integration in ENU
   const cp = Math.cos(SimState.pitch);
   const ch = Math.cos(SimState.heading);
   const sh = Math.sin(SimState.heading);
   const sp = Math.sin(SimState.pitch);
 
-  // Critically: while on ground, keep Z=0 so forward is purely horizontal.
   const forwardENU = new Cesium.Cartesian3(
     cp * ch,
     cp * sh,
-    SimState.onGround ? 0.0 : sp
+    SimState.onGround ? 0.0 : sp // keep horizontal while on ground
   );
   normalize3(forwardENU, forwardENU);
-  SimState.lastENUForward = forwardENU; // used to damp sideways drift
 
-  // Current ECEF
   const currentECEF = Cesium.Cartesian3.fromRadians(SimState.lon, SimState.lat, SimState.height);
-
-  // Build ENU frame
   const enu = Cesium.Transforms.eastNorthUpToFixedFrame(currentECEF);
   const enuRot = Cesium.Matrix4.getMatrix3(enu, new Cesium.Matrix3());
-
-  // Lateral drift mitigation: project old forward to current ENU plane if on ground to keep straight roll
-  if (SimState.onGround) {
-    forwardENU.z = 0.0;
-    normalize3(forwardENU, forwardENU);
-  }
-
-  // Convert ENU forward to ECEF and integrate displacement
   const fECEF = Cesium.Matrix3.multiplyByVector(enuRot, forwardENU, new Cesium.Cartesian3());
-  // apply speed
   const disp = Cesium.Cartesian3.multiplyByScalar(fECEF, SimState.speed * dt, new Cesium.Cartesian3());
-  // sideways drift damping (reduce unintended E/W or N/S slippage)
   disp.x *= SimState.onGround ? CONFIG.PHYSICS.SIDE_DRIFT_DAMP : 1.0;
   disp.y *= SimState.onGround ? CONFIG.PHYSICS.SIDE_DRIFT_DAMP : 1.0;
 
   const newECEF = Cesium.Cartesian3.add(currentECEF, disp, new Cesium.Cartesian3());
   const newCarto = Cesium.Cartographic.fromCartesian(newECEF);
 
-  // Update lon/lat; track height separately to include climb rate
   SimState.lon = newCarto.longitude;
   SimState.lat = newCarto.latitude;
 
   let newHeight = (newCarto.height || 0) + SimState.verticalSpeed * dt;
 
-  // Wind drift (optional)
+  // Optional wind drift
   if (CONFIG.WEATHER.ENABLE_WIND && WeatherState.data && WeatherState.windSpeed > 0.05) {
     const toDirRad = deg2rad((WeatherState.windDirDeg + 180) % 360);
     const driftSpeed = WeatherState.windSpeed * CONFIG.WEATHER.WIND_SCALE;
-    const driftENU = new Cesium.Cartesian3(
-      Math.cos(toDirRad) * driftSpeed * dt,
-      Math.sin(toDirRad) * driftSpeed * dt,
-      0
-    );
+    const driftENU = new Cesium.Cartesian3(Math.cos(toDirRad) * driftSpeed * dt, Math.sin(toDirRad) * driftSpeed * dt, 0);
     const driftECEF = Cesium.Matrix3.multiplyByVector(enuRot, driftENU, new Cesium.Cartesian3());
     const driftedECEF = Cesium.Cartesian3.add(Cesium.Cartesian3.fromRadians(SimState.lon, SimState.lat, newHeight), driftECEF, new Cesium.Cartesian3());
     const drifted = Cesium.Cartographic.fromCartesian(driftedECEF);
@@ -820,7 +1171,7 @@ function onTick(clock) {
     newHeight = drifted.height;
   }
 
-  // Terrain clamping (throttled)
+  // Terrain clamp (throttled)
   let willCommit = true;
   SimState.sampleCounter = (SimState.sampleCounter + 1) % CONFIG.SAMPLING.TERRAIN_STEPS;
   if (SimState.sampleCounter === 0 && !SimState.sampling) {
@@ -857,12 +1208,17 @@ function onTick(clock) {
 
   // Debug overlay
   updateDebugOverlay();
+
+  // Keep passenger tab updated if open
+  if (SimState.passengerWin && !SimState.passengerWin.closed) {
+    // periodic updates handled by startPassengerMessaging timer
+  }
 }
 
 
 
 // ==================================================================================================
-// 9) Commit pose + camera + HUD
+// 10) Commit pose + camera + HUD
 // ==================================================================================================
 
 function commitPose(h) {
@@ -879,7 +1235,6 @@ function commitPose(h) {
   if (SimState.viewMode === 'orbit') {
     // trackedEntity manages orbit
   } else {
-    // Compute forward and up vectors from plane orientation
     const AXIS_X = new Cesium.Cartesian3(1, 0, 0);
     const AXIS_Z = new Cesium.Cartesian3(0, 0, 1);
     const m3 = Cesium.Matrix3.fromQuaternion(quat, new Cesium.Matrix3());
@@ -897,7 +1252,6 @@ function commitPose(h) {
       camPos.z = pos.z + forward.z * CONFIG.CAMERA.FP_AHEAD + up.z * CONFIG.CAMERA.FP_UP;
     }
 
-    // Smooth camera
     const t = 1 - Math.pow(CONFIG.CAMERA.SMOOTH_FACTOR, 60 * (1/60));
     if (!SimState.camPosSmooth) SimState.camPosSmooth = camPos.clone();
     SimState.camPosSmooth.x = SimState.camPosSmooth.x + (camPos.x - SimState.camPosSmooth.x) * t;
@@ -942,11 +1296,10 @@ function commitPose(h) {
 
 
 // ==================================================================================================
-// 10) Convenience tools
+// 11) Convenience tools + optional route drawing
 // ==================================================================================================
 
 function resetToRunway() {
-  // Reset to spawn location and heading
   SimState.heading = deg2rad(CONFIG.SPAWN.HEADING_DEG);
   SimState.pitch = 0;
   SimState.roll = 0;
@@ -971,28 +1324,40 @@ function resetToRunway() {
     });
 }
 
-// Optional: wire a debug toggle to a key
-document.addEventListener('keydown', (e) => {
-  // backtick ` or F8
-  if (e.key === '`' || e.key === 'F8') {
-    toggleDebug();
+function drawRoute(positionsCartoDegreesArray) {
+  // positionsCartoDegreesArray: [{lat, lon}, ...]
+  const positions = positionsCartoDegreesArray.map(p => Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 0));
+  SimState.routePositions = positions;
+  if (SimState.routeEntity) {
+    SimState.viewer.entities.remove(SimState.routeEntity);
+    SimState.routeEntity = null;
   }
-});
+  SimState.routeEntity = SimState.viewer.entities.add({
+    polyline: {
+      positions: positions,
+      width: 3,
+      material: Cesium.Color.CYAN.withAlpha(0.8),
+      clampToGround: false
+    }
+  });
+
+  // Push route to passenger tab
+  if (SimState.passengerWin && !SimState.passengerWin.closed) {
+    const coords = positions.map(c => {
+      const carto = Cesium.Cartographic.fromCartesian(c);
+      return [rad2deg(carto.latitude), rad2deg(carto.longitude)];
+    });
+    SimState.passengerWin.postMessage({ type: 'pax:route', coords, info: `Route points: ${coords.length}` }, '*');
+  }
+}
 
 
 
 // ==================================================================================================
-// 11) Notes for integration
+// 12) Kickoff
 // ==================================================================================================
 //
-// - Make sure your HTML includes the expected elements and the CesiumJS script + CSS.
-// - Replace CONFIG.CESIUM_TOKEN and CONFIG.MODEL.AIRCRAFT_ASSET_ID.
-// - If you want to switch to a different runway/airport, update CONFIG.SPAWN.
-// - If sideways motion persists, verify your keyboard layout isn't generating continuous lateral key presses,
-//   and consider increasing PHYSICS.SIDE_DRIFT_DAMP slightly (0.92 - 0.96).
-// - To increase acceleration, raise PHYSICS.MAX_THRUST_ACCEL (e.g., 14.0 or 16.0).
-// - To make takeoff easier, reduce TAKEOFF_SPEED slightly (e.g., 70.0).
-// - The weather particle systems are intentionally camera-local; this keeps performance solid while conveying rain/snow.
-// - For performance in low-end machines, set WEATHER.CLOUD_SPRITES_MAX to ~16 and reduce emission rates in tuneRainIntensity/tuneSnowIntensity.
+// Init is triggered after login form acceptance.
+// To bypass login for development, uncomment the line below:
+// initSim().catch(console.error);
 //
-// ==================================================================================================

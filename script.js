@@ -64,7 +64,7 @@ form?.addEventListener('submit', (e) => {
 
 const CONFIG = {
   // Cesium ion access
-  CESIUM_TOKEN: 'YOUR_TOKEN_HERE', // <-- paste your Cesium ion token here
+  CESIUM_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NDIwYmNkOS03MTExLTRjZGEtYjI0Yy01ZmIzYzJmOGFjNGEiLCJpZCI6MzM5NTE3LCJpYXQiOjE3NTczNTg4Mzd9.3gkVP8epIlHiy3MtC2GnDgLhvD4XbhfIsWfzuyYjDZQ', // <-- paste your Cesium ion token here
 
   // Terrain
   USE_FLAT_TERRAIN: false,
@@ -78,7 +78,7 @@ const CONFIG = {
 
   // Model (Cesium ion asset)
   MODEL: {
-    AIRCRAFT_ASSET_ID: YOUR_ASSET_ID, // <-- replace with your Cesium ion asset ID (number)
+    AIRCRAFT_ASSET_ID: '3713684', // <-- replace with your Cesium ion asset ID (number)
     SCALE: 1.0,
     MIN_PIXEL_SIZE: 96,
     RUN_ANIMATIONS: false

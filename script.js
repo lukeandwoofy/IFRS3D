@@ -1,36 +1,61 @@
 // script.js
 // ==================================================================================================
-// Headwind A330-900neo Cesium flight sim — extended build with:
-// - Fixed thrust and forward motion aligned to heading (no sideways drift)
-// - Accurate runway-aligned spawn using terrain sampling (LPPT RWY 03 default)
-// - Open‑Meteo live weather (no API key): clouds, rain/snow particles, sky tint
-// - Camera modes (Orbit/Chase/First), HUD, debug overlay, performance throttles
-// - Passenger tab system:
-//     * Press "2" to open a right-side setup panel inside the sim
-//     * Choose Airline, Aircraft, Destination/Arrival details
-//     * Press "Create Tab" to open a separate browser tab with IFE-style passenger page
-//     * Passenger page shows live map (Leaflet.js), route progress, air data
+// Headwind A330-900neo Cesium flight sim — ultra-extended build (1,000+ lines) with:
+// - Fixed thrust + enforced forward motion aligned to heading (no sideways drift)
+// - Controls: Increase thrust = Left Shift, Decrease thrust = Left Ctrl (not arrow keys)
+// - Accurate runway-aligned spawn (LPPT RWY 03 default) using terrain sampling + gear clearance
+// - Weather via Open‑Meteo (no key): clouds, rain/snow particles, atmosphere tint
+// - Cloud sprite ring that follows aircraft (perf-friendly)
+// - Camera modes: Orbit (tracked), Chase, First-Person with smoothing
+// - HUD + Debug overlay + requestRender-friendly loop
+// - Passenger tab: press "2" to open a setup panel; "Create Tab" spawns separate IFE page (Leaflet.js map)
+// - OSM Buildings outlines disabled to silence Cesium warning and allow imagery draping
+// - Optional auto-favicon injection to avoid 404 favicon.ico
 //
 // Integration reminders:
-//   - Replace CONFIG.CESIUM_TOKEN and CONFIG.MODEL.AIRCRAFT_ASSET_ID
-//   - Ensure HTML contains: #login, #loginForm, #password, #loading, #cesiumContainer, #hud + spans
-//   - This script lazy-loads Leaflet for the IFE tab automatically
+//   1) Replace CONFIG.CESIUM_TOKEN with your Cesium ion token
+//   2) Replace CONFIG.MODEL.AIRCRAFT_ASSET_ID with your Cesium ion 3D model asset ID
+//   3) Ensure your HTML includes:
+//        - #login, #loginForm, #password
+//        - #loading
+//        - #cesiumContainer
+//        - #hud with spans #speed #altitude #heading #viewmode #ground
+//   4) This script lazy-loads Leaflet in the IFE tab and can also preload it in the main page if needed.
+//   5) Movement enforcement: if thrust > threshold and speed is near zero, a minimum ground push is applied.
 //
-// Keyboard:
-//   - Throttle: ArrowUp/ArrowDown
-//   - Pitch: W/S (negative pitch = nose up)
+// Keyboard (case-insensitive):
+//   - Thrust up: Left Shift
+//   - Thrust down: Left Ctrl
+//   - Pitch: W (nose up), S (nose down)
 //   - Roll: A/D
 //   - Yaw: Q/E
-//   - View: V (Orbit -> Chase -> First)
-//   - Toggle Passenger setup panel: 2
-//   - Debug overlay toggle: ` (backtick) or F8
+//   - View mode: V (Orbit -> Chase -> First)
+//   - Passenger setup panel: 2
+//   - Debug toggle: ` (backtick) or F8
 //
 // ==================================================================================================
 
 
 
 // ==================================================================================================
-// 0) Login flow
+// 0) Optional: auto inject a tiny data-URL favicon to avoid 404 favicon.ico (harmless fallback)
+// ==================================================================================================
+
+(function ensureFavicon() {
+  const hasFavicon = !!document.querySelector('link[rel="icon"]');
+  if (hasFavicon) return;
+  const link = document.createElement('link');
+  link.rel = 'icon';
+  link.type = 'image/png';
+  // 16x16 transparent PNG dot
+  link.href = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAAHElEQVQoka2QMQoAIAwD9/9fRkD0c2G7cQ4m5o9o9JcG4lH2g0w2V0u8AAAAASUVORK5CYII=';
+  document.head.appendChild(link);
+})();
+
+
+
+// ==================================================================================================
+// 1) Login flow
 // ==================================================================================================
 
 const PASSWORD = 'A330';
@@ -59,7 +84,7 @@ form?.addEventListener('submit', (e) => {
 
 
 // ==================================================================================================
-// 1) Configuration
+// 2) Configuration
 // ==================================================================================================
 
 const CONFIG = {
@@ -93,23 +118,30 @@ const CONFIG = {
     OSM_BUILDINGS: true
   },
 
-  // Physics
+  // Physics and controls
   PHYSICS: {
     G: 9.81,
-    MAX_THRUST_ACCEL: 12.0,
+    // Thrust and motion
+    MAX_THRUST_ACCEL: 14.0,    // stronger for decisive ground roll
     DRAG_COEFF: 0.006,
     LIFT_COEFF: 0.95,
     GEAR_HEIGHT: 2.8,
     TAKEOFF_SPEED: 75.0,
+    // Attitude rates
     MAX_BANK_RATE: 0.9,
     MAX_PITCH_RATE: 0.75,
     MAX_YAW_RATE: 0.9,
     GROUND_STEER_RATE: 0.8,
-    THRUST_RAMP: 2.0,
-    THRUST_DECAY: 2.0,
-    SIDE_DRIFT_DAMP: 0.9,
+    // Thrust ramp/decay (for Shift/Ctrl controls)
+    THRUST_RAMP: 1.6,
+    THRUST_DECAY: 1.8,
+    // Drift and damping
+    SIDE_DRIFT_DAMP: 0.92,
     ROLL_DAMP_AIR: 0.995,
-    PITCH_DAMP_AIR: 0.995
+    PITCH_DAMP_AIR: 0.995,
+    // Movement enforcement
+    GROUND_STICTION_PUSH: 0.6,   // base forward m/s push if thrust>0 and speed~0
+    GROUND_STICTION_THRESH: 0.12 // if speed below this and thrust>0 => apply push
   },
 
   // Camera
@@ -168,7 +200,7 @@ const CONFIG = {
 
 
 // ==================================================================================================
-// 2) Utilities
+// 3) Utilities
 // ==================================================================================================
 
 const deg2rad = (d) => Cesium.Math.toRadians(d);
@@ -176,6 +208,8 @@ const rad2deg = (r) => Cesium.Math.toDegrees(r);
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const nmFromMeters = (m) => m / 1852;
+const ms2kts = (ms) => ms * 1.94384;
+const m2ft = (m) => m * 3.28084;
 
 function hprQuaternion(position, heading, pitch, roll) {
   return Cesium.Transforms.headingPitchRollQuaternion(
@@ -218,7 +252,7 @@ function loadExternalStyle(href) {
 
 
 // ==================================================================================================
-// 3) State
+// 4) State
 // ==================================================================================================
 
 const SimState = {
@@ -237,7 +271,7 @@ const SimState = {
 
   onGround: true,
 
-  // Position
+  // Position (radians + meters)
   lon: deg2rad(CONFIG.SPAWN.LON_DEG),
   lat: deg2rad(CONFIG.SPAWN.LAT_DEG),
   height: 0.0,
@@ -271,7 +305,7 @@ const SimState = {
     arrivalLocal: CONFIG.PASSENGER.DEFAULT_ARRIVAL_TIME_LOCAL
   },
 
-  // Route (optional): can be populated from SimBrief later
+  // Route (optional)
   routePositions: [], // array of Cesium.Cartesian3 for route polyline
   routeEntity: null
 };
@@ -299,24 +333,25 @@ const DebugState = {
 
 
 // ==================================================================================================
-// 4) Input
+// 5) Input (with Left Shift / Left Ctrl thrust control)
 // ==================================================================================================
 
 document.addEventListener('keydown', (e) => {
-  SimState.keys[e.key] = true;
-  if (e.key === '`' || e.key === 'F8') {
-    toggleDebug();
-  }
-  if (e.key === '2') {
-    togglePassengerPanel();
-  }
+  SimState.keys[e.key.toLowerCase()] = true;
+  SimState.keys[e.code] = true; // capture 'ShiftLeft', 'ControlLeft'
+  if (e.key === '`' || e.key === 'F8') toggleDebug();
+  if (e.key === '2') togglePassengerPanel();
 });
-document.addEventListener('keyup', (e) => (SimState.keys[e.key] = false));
+
+document.addEventListener('keyup', (e) => {
+  SimState.keys[e.key.toLowerCase()] = false;
+  SimState.keys[e.code] = false;
+});
 
 
 
 // ==================================================================================================
-// 5) Debug overlay
+// 6) Debug overlay
 // ==================================================================================================
 
 function createDebugOverlay() {
@@ -344,7 +379,7 @@ function updateDebugOverlay() {
   if (!DebugState.enabled || !DebugState.el) return;
   const lines = [
     `Thrust: ${SimState.thrustInput.toFixed(2)}`,
-    `Speed: ${SimState.speed.toFixed(1)} m/s  (${(SimState.speed * 1.94384).toFixed(0)} kts)`,
+    `Speed: ${SimState.speed.toFixed(2)} m/s (${ms2kts(SimState.speed).toFixed(0)} kts)`,
     `V/S: ${SimState.verticalSpeed.toFixed(2)} m/s`,
     `Pitch: ${rad2deg(SimState.pitch).toFixed(1)}°  Roll: ${rad2deg(SimState.roll).toFixed(1)}°`,
     `Heading: ${rad2deg(SimState.heading).toFixed(1)}°`,
@@ -368,7 +403,7 @@ function toggleDebug() {
 
 
 // ==================================================================================================
-// 6) Initialization
+// 7) Initialization
 // ==================================================================================================
 
 async function initSim() {
@@ -400,13 +435,15 @@ async function initSim() {
   if (CONFIG.VIEWER.OSM_BUILDINGS) {
     try {
       const osm = await Cesium.createOsmBuildingsAsync();
+      // IMPORTANT: disable outlines to silence "Primitive outlines disable imagery draping"
+      osm.showOutline = false;
       viewer.scene.primitives.add(osm);
     } catch (e) {
       console.warn('OSM buildings failed:', e);
     }
   }
 
-  // Sample terrain to place the aircraft on ground + gear height
+  // Terrain sample for ground placement
   const startCarto = new Cesium.Cartographic(SimState.lon, SimState.lat);
   let terrainH = 0;
   try {
@@ -417,22 +454,39 @@ async function initSim() {
   }
   SimState.height = terrainH + CONFIG.PHYSICS.GEAR_HEIGHT;
 
-  // Load aircraft model
+  // Load model
   const pos = Cesium.Cartesian3.fromRadians(SimState.lon, SimState.lat, SimState.height);
-  const modelUri = await Cesium.IonResource.fromAssetId(CONFIG.MODEL.AIRCRAFT_ASSET_ID);
+  if (!CONFIG.MODEL.AIRCRAFT_ASSET_ID || CONFIG.MODEL.AIRCRAFT_ASSET_ID === 0) {
+    console.warn('CONFIG.MODEL.AIRCRAFT_ASSET_ID is not set. The sim will still run without model.');
+  }
+  let modelUri = null;
+  try {
+    if (CONFIG.MODEL.AIRCRAFT_ASSET_ID && CONFIG.MODEL.AIRCRAFT_ASSET_ID !== 0) {
+      modelUri = await Cesium.IonResource.fromAssetId(CONFIG.MODEL.AIRCRAFT_ASSET_ID);
+    }
+  } catch (e) {
+    console.warn('Failed to load model via ion asset id:', e);
+  }
+
   const planeEntity = viewer.entities.add({
     position: pos,
-    model: {
+    model: modelUri ? {
       uri: modelUri,
       scale: CONFIG.MODEL.SCALE,
       minimumPixelSize: CONFIG.MODEL.MIN_PIXEL_SIZE,
       runAnimations: CONFIG.MODEL.RUN_ANIMATIONS
-    },
-    orientation: hprQuaternion(pos, SimState.heading, SimState.pitch, SimState.roll)
+    } : undefined,
+    // Always provide orientation so camera tracking works even if model is absent
+    orientation: hprQuaternion(pos, SimState.heading, SimState.pitch, SimState.roll),
+    // Optional fallback billboard if model not loaded
+    point: modelUri ? undefined : {
+      color: Cesium.Color.ORANGE,
+      pixelSize: 10
+    }
   });
   SimState.planeEntity = planeEntity;
 
-  // Initial camera: orbit around entity
+  // Camera fly-to
   try {
     await viewer.flyTo(planeEntity, {
       duration: 1.2,
@@ -440,9 +494,9 @@ async function initSim() {
     });
   } catch {}
   viewer.trackedEntity = planeEntity;
-  viewLabel && (viewLabel.textContent = 'Orbit');
+  if (viewLabel) viewLabel.textContent = 'Orbit';
 
-  // Loading overlay off
+  // Hide loading
   loadingOverlay?.classList.add('hidden');
 
   // Camera smoothing seed
@@ -456,7 +510,7 @@ async function initSim() {
   // Build passenger setup panel (hidden by default)
   buildPassengerPanel();
 
-  // Debug overlay
+  // Debug overlay (optional)
   createDebugOverlay();
 
   // Main loop
@@ -466,7 +520,7 @@ async function initSim() {
 
 
 // ==================================================================================================
-// 7) Weather (Open-Meteo)
+// 8) Weather (Open-Meteo)
 // ==================================================================================================
 
 async function initWeather() {
@@ -525,7 +579,7 @@ function applyWeatherVisuals() {
   const precip = WeatherState.precipRate;
   const tempC = WeatherState.tempC;
 
-  // Overcast atmosphere tint
+  // Atmosphere tint for overcast
   const atm = v.scene.skyAtmosphere;
   const overcast = clouds >= CONFIG.WEATHER.CLOUDS_OVERCAST_THRESHOLD;
   atm.hueShift = overcast ? -0.02 : 0.0;
@@ -539,7 +593,7 @@ function applyWeatherVisuals() {
     radius: CONFIG.WEATHER.CLOUD_RADIUS_M
   });
 
-  // Precipitation
+  // Precipitation particles
   const isSnow = (tempC <= CONFIG.WEATHER.SNOW_TEMP_C) && (precip > CONFIG.WEATHER.PRECIP_MIN);
   const isRain = (tempC > CONFIG.WEATHER.SNOW_TEMP_C) && (precip > CONFIG.WEATHER.PRECIP_MIN);
 
@@ -569,6 +623,7 @@ function createOrUpdateCloudSprites({ cloudiness, altitudeAGL, radius }) {
   const max = CONFIG.WEATHER.CLOUD_SPRITES_MAX;
   const target = Math.round(clamp01(cloudiness / 100) * max);
 
+  // Adjust count
   while (bbs.length < target) {
     bbs.add({
       image: generateCloudSprite(),
@@ -739,11 +794,10 @@ function updatePrecipModelMatrix() {
 
 
 // ==================================================================================================
-// 8) Passenger setup panel + IFE tab
+// 9) Passenger setup panel + IFE tab
 // ==================================================================================================
 
 function buildPassengerPanel() {
-  // Create panel container
   let panel = document.getElementById(CONFIG.PASSENGER.PANEL_ID);
   if (!panel) {
     panel = document.createElement('div');
@@ -787,14 +841,12 @@ function buildPassengerPanel() {
     document.body.appendChild(panel);
   }
 
-  // Close button
   panel.querySelector('#paxCloseBtn')?.addEventListener('click', () => {
     panel.style.display = 'none';
   });
 
-  // Create Tab button
   document.getElementById(CONFIG.PASSENGER.BTN_ID)?.addEventListener('click', async () => {
-    // Update config from inputs
+    // Read inputs
     SimState.paxConfig.airline = document.getElementById('paxAirline').value.trim();
     SimState.paxConfig.aircraft = document.getElementById('paxAircraft').value.trim();
     SimState.paxConfig.flight = document.getElementById('paxFlight').value.trim();
@@ -805,24 +857,21 @@ function buildPassengerPanel() {
     SimState.paxConfig.departureLocal = document.getElementById('paxDepLocal').value.trim();
     SimState.paxConfig.arrivalLocal = document.getElementById('paxArrLocal').value.trim();
 
-    // Lazy-load Leaflet in the main page as well (for icon CSS reuse if needed)
-    await ensureLeafletLoaded();
-
-    // Open or reuse passenger window
+    // Open passenger window
     if (!SimState.passengerWin || SimState.passengerWin.closed) {
-      SimState.passengerWin = window.open('', '_blank', 'noopener,noreferrer');
+      // Use '_blank' and no opener for isolation
+      SimState.passengerWin = window.open('', '_blank', 'noopener');
     } else {
       SimState.passengerWin.focus();
     }
 
-    // Inject IFE HTML
+    // Write IFE HTML
     writePassengerWindow(SimState.passengerWin, SimState.paxConfig);
 
-    // Start messaging loop to the passenger tab
-    startPassengerMessaging();
+    // Start messaging updates
+    startPassengerMessaging(true);
   });
 
-  // Reconnect button
   document.getElementById('paxRefreshBtn')?.addEventListener('click', () => {
     if (SimState.passengerWin && !SimState.passengerWin.closed) {
       startPassengerMessaging(true);
@@ -839,15 +888,7 @@ function togglePassengerPanel() {
   panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
 }
 
-async function ensureLeafletLoaded() {
-  // If L exists, assume loaded
-  if (typeof window.L !== 'undefined') return;
-  await loadExternalStyle(CONFIG.PASSENGER.LEAFLET_CSS);
-  await loadExternalScript(CONFIG.PASSENGER.LEAFLET_JS);
-}
-
 function writePassengerWindow(win, cfg) {
-  // Base HTML with Leaflet placeholders
   const doc = win.document;
   doc.open();
   doc.write(`
@@ -949,7 +990,6 @@ function writePassengerWindow(win, cfg) {
       document.getElementById('routeInfo').textContent = text;
     }
 
-    // Message bus
     window.addEventListener('message', (evt) => {
       const msg = evt.data || {};
       if (msg.type === 'pax:init') {
@@ -974,12 +1014,8 @@ function writePassengerWindow(win, cfg) {
 
 let paxMessengerTimer = null;
 function startPassengerMessaging(force = false) {
-  // Start periodic postMessage of position and stats
   if (paxMessengerTimer && !force) return;
-
-  // Send initial meta and bootstrap
   sendPassengerInit();
-
   if (paxMessengerTimer) clearInterval(paxMessengerTimer);
   paxMessengerTimer = setInterval(() => {
     sendPassengerUpdate();
@@ -996,7 +1032,6 @@ function sendPassengerInit() {
     lat, lon
   }, '*');
 
-  // Send route if available
   if (SimState.routePositions && SimState.routePositions.length > 1) {
     const coords = SimState.routePositions.map(c => {
       const carto = Cesium.Cartographic.fromCartesian(c);
@@ -1015,11 +1050,11 @@ function sendPassengerUpdate() {
 
   const latDeg = rad2deg(SimState.lat);
   const lonDeg = rad2deg(SimState.lon);
-  const altFt = SimState.height * 3.28084;
-  const kts = SimState.speed * 1.94384;
+  const altFt = m2ft(SimState.height);
+  const kts = ms2kts(SimState.speed);
   const hdgDeg = (rad2deg(SimState.heading) + 360) % 360;
 
-  // If route + destination known, compute naive remaining distance to last route point
+  // Remaining distance to last route point
   let distRemainingNm = null;
   if (SimState.routePositions && SimState.routePositions.length > 0) {
     const last = SimState.routePositions[SimState.routePositions.length - 1];
@@ -1028,7 +1063,6 @@ function sendPassengerUpdate() {
     distRemainingNm = nmFromMeters(dMeters);
   }
 
-  // Naive time remaining (min)
   let timeRemainingStr = null;
   if (distRemainingNm !== null && kts > 1) {
     const hr = distRemainingNm / kts;
@@ -1037,7 +1071,6 @@ function sendPassengerUpdate() {
     timeRemainingStr = `${h}h ${m}m`;
   }
 
-  // Weather summary
   const wx = WeatherState.data ? `${WeatherState.condition}, ${WeatherState.cloudiness}% clouds, ${WeatherState.tempC.toFixed(0)}°C` : '';
 
   SimState.passengerWin.postMessage({
@@ -1050,7 +1083,6 @@ function sendPassengerUpdate() {
     wx
   }, '*');
 
-  // Periodically resend meta in case of tab refresh
   if (Math.random() < 0.05) {
     SimState.passengerWin.postMessage({ type: 'pax:meta', cfg: SimState.paxConfig }, '*');
   }
@@ -1059,7 +1091,7 @@ function sendPassengerUpdate() {
 
 
 // ==================================================================================================
-// 9) Main simulation loop
+// 10) Main simulation loop (with enforced movement + Left Shift/Ctrl thrust)
 // ==================================================================================================
 
 function onTick(clock) {
@@ -1075,9 +1107,14 @@ function onTick(clock) {
     updatePrecipModelMatrix();
   }
 
-  // Controls: thrust
-  if (SimState.keys['ArrowUp']) SimState.thrustInput = Math.min(1, SimState.thrustInput + CONFIG.PHYSICS.THRUST_RAMP * dt);
-  if (SimState.keys['ArrowDown']) SimState.thrustInput = Math.max(0, SimState.thrustInput - CONFIG.PHYSICS.THRUST_DECAY * dt);
+  // Controls: thrust (Left Shift = up, Left Ctrl = down)
+  // Prefer physical codes to avoid ambiguity
+  if (SimState.keys['ShiftLeft']) {
+    SimState.thrustInput = Math.min(1, SimState.thrustInput + CONFIG.PHYSICS.THRUST_RAMP * dt);
+  }
+  if (SimState.keys['ControlLeft']) {
+    SimState.thrustInput = Math.max(0, SimState.thrustInput - CONFIG.PHYSICS.THRUST_DECAY * dt);
+  }
 
   // Controls: yaw
   if (SimState.onGround) {
@@ -1108,11 +1145,11 @@ function onTick(clock) {
   }
 
   // View mode toggle
-  if (SimState.keys['v'] && SimState.canToggleView) {
+  if ((SimState.keys['v'] || SimState.keys['V']) && SimState.canToggleView) {
     SimState.canToggleView = false;
     setTimeout(() => (SimState.canToggleView = true), 260);
     SimState.viewMode = SimState.viewMode === 'orbit' ? 'chase' : SimState.viewMode === 'chase' ? 'first' : 'orbit';
-    viewLabel && (viewLabel.textContent = SimState.viewMode.charAt(0).toUpperCase() + SimState.viewMode.slice(1));
+    if (viewLabel) viewLabel.textContent = SimState.viewMode.charAt(0).toUpperCase() + SimState.viewMode.slice(1);
     SimState.viewer.trackedEntity = SimState.viewMode === 'orbit' ? SimState.planeEntity : undefined;
   }
 
@@ -1121,7 +1158,13 @@ function onTick(clock) {
   if (SimState.heading < -Math.PI) SimState.heading += Math.PI * 2;
 
   // Physics: forward speed integration
-  const accel = SimState.thrustInput * CONFIG.PHYSICS.MAX_THRUST_ACCEL - CONFIG.PHYSICS.DRAG_COEFF * SimState.speed;
+  let accel = SimState.thrustInput * CONFIG.PHYSICS.MAX_THRUST_ACCEL - CONFIG.PHYSICS.DRAG_COEFF * SimState.speed;
+
+  // Movement enforcement: if thrust > small threshold and speed is near zero, apply push
+  if (SimState.thrustInput > 0.02 && SimState.speed < CONFIG.PHYSICS.GROUND_STICTION_THRESH && SimState.onGround) {
+    accel += CONFIG.PHYSICS.GROUND_STICTION_PUSH; // overcome static friction
+  }
+
   SimState.speed = Math.max(0, SimState.speed + accel * dt);
 
   // Lift vs gravity (negative pitch => nose up)
@@ -1138,7 +1181,7 @@ function onTick(clock) {
   const forwardENU = new Cesium.Cartesian3(
     cp * ch,
     cp * sh,
-    SimState.onGround ? 0.0 : sp // keep horizontal while on ground
+    SimState.onGround ? 0.0 : sp // horizontal forward on ground
   );
   normalize3(forwardENU, forwardENU);
 
@@ -1188,12 +1231,12 @@ function onTick(clock) {
         } else {
           SimState.onGround = false;
         }
-        groundLabel && (groundLabel.textContent = SimState.onGround ? 'Yes' : 'No');
+        if (groundLabel) groundLabel.textContent = SimState.onGround ? 'Yes' : 'No';
         commitPose(newHeight);
       })
       .catch(() => {
         SimState.onGround = false;
-        groundLabel && (groundLabel.textContent = 'Unknown');
+        if (groundLabel) groundLabel.textContent = 'Unknown';
         commitPose(newHeight);
       })
       .finally(() => {
@@ -1209,16 +1252,13 @@ function onTick(clock) {
   // Debug overlay
   updateDebugOverlay();
 
-  // Keep passenger tab updated if open
-  if (SimState.passengerWin && !SimState.passengerWin.closed) {
-    // periodic updates handled by startPassengerMessaging timer
-  }
+  // Passenger updates are on their own timer
 }
 
 
 
 // ==================================================================================================
-// 10) Commit pose + camera + HUD
+// 11) Commit pose + camera + HUD
 // ==================================================================================================
 
 function commitPose(h) {
@@ -1227,13 +1267,13 @@ function commitPose(h) {
   const pos = Cesium.Cartesian3.fromRadians(SimState.lon, SimState.lat, SimState.height);
   const quat = hprQuaternion(pos, SimState.heading, SimState.pitch, SimState.roll);
 
-  // Update entity
+  // Update entity pose
   SimState.planeEntity.position = pos;
   SimState.planeEntity.orientation = quat;
 
-  // Camera control
+  // Camera
   if (SimState.viewMode === 'orbit') {
-    // trackedEntity manages orbit
+    // trackedEntity manages orbit camera
   } else {
     const AXIS_X = new Cesium.Cartesian3(1, 0, 0);
     const AXIS_Z = new Cesium.Cartesian3(0, 0, 1);
@@ -1246,7 +1286,7 @@ function commitPose(h) {
       camPos.x = pos.x - forward.x * CONFIG.CAMERA.CHASE_BACK + up.x * CONFIG.CAMERA.CHASE_UP;
       camPos.y = pos.y - forward.y * CONFIG.CAMERA.CHASE_BACK + up.y * CONFIG.CAMERA.CHASE_UP;
       camPos.z = pos.z - forward.z * CONFIG.CAMERA.CHASE_BACK + up.z * CONFIG.CAMERA.CHASE_UP;
-    } else {
+    } else { // first-person
       camPos.x = pos.x + forward.x * CONFIG.CAMERA.FP_AHEAD + up.x * CONFIG.CAMERA.FP_UP;
       camPos.y = pos.y + forward.y * CONFIG.CAMERA.FP_AHEAD + up.y * CONFIG.CAMERA.FP_UP;
       camPos.z = pos.z + forward.z * CONFIG.CAMERA.FP_AHEAD + up.z * CONFIG.CAMERA.FP_UP;
@@ -1254,9 +1294,9 @@ function commitPose(h) {
 
     const t = 1 - Math.pow(CONFIG.CAMERA.SMOOTH_FACTOR, 60 * (1/60));
     if (!SimState.camPosSmooth) SimState.camPosSmooth = camPos.clone();
-    SimState.camPosSmooth.x = SimState.camPosSmooth.x + (camPos.x - SimState.camPosSmooth.x) * t;
-    SimState.camPosSmooth.y = SimState.camPosSmooth.y + (camPos.y - SimState.camPosSmooth.y) * t;
-    SimState.camPosSmooth.z = SimState.camPosSmooth.z + (camPos.z - SimState.camPosSmooth.z) * t;
+    SimState.camPosSmooth.x += (camPos.x - SimState.camPosSmooth.x) * t;
+    SimState.camPosSmooth.y += (camPos.y - SimState.camPosSmooth.y) * t;
+    SimState.camPosSmooth.z += (camPos.z - SimState.camPosSmooth.z) * t;
 
     const toTarget = Cesium.Cartesian3.subtract(pos, SimState.camPosSmooth, new Cesium.Cartesian3());
     Cesium.Cartesian3.normalize(toTarget, toTarget);
@@ -1270,7 +1310,7 @@ function commitPose(h) {
     });
   }
 
-  // Re-center cloud ring
+  // Recenter cloud ring positions
   if (WeatherState.cloudBillboards && WeatherState.cloudBillboards.length > 0) {
     createOrUpdateCloudSprites({
       cloudiness: WeatherState.cloudiness || 0,
@@ -1280,15 +1320,12 @@ function commitPose(h) {
   }
 
   // HUD
-  const speedKts = Math.round(SimState.speed * 1.94384);
-  const altFt = Math.round(SimState.height * 3.28084);
-  const hdgDeg = Math.round((rad2deg(SimState.heading) + 360) % 360);
   const speedEl = document.getElementById('speed');
   const altEl = document.getElementById('altitude');
   const hdgEl = document.getElementById('heading');
-  if (speedEl) speedEl.textContent = `${speedKts}`;
-  if (altEl) altEl.textContent = `${altFt}`;
-  if (hdgEl) hdgEl.textContent = `${hdgDeg}`;
+  if (speedEl) speedEl.textContent = `${Math.round(ms2kts(SimState.speed))}`;
+  if (altEl) altEl.textContent = `${Math.round(m2ft(SimState.height))}`;
+  if (hdgEl) hdgEl.textContent = `${Math.round((rad2deg(SimState.heading) + 360) % 360)}`;
 
   SimState.viewer.scene.requestRender();
 }
@@ -1296,7 +1333,7 @@ function commitPose(h) {
 
 
 // ==================================================================================================
-// 11) Convenience tools + optional route drawing
+// 12) Convenience tools + optional route drawing
 // ==================================================================================================
 
 function resetToRunway() {
@@ -1316,7 +1353,7 @@ function resetToRunway() {
       SimState.height = th + CONFIG.PHYSICS.GEAR_HEIGHT;
       commitPose(SimState.height);
       SimState.viewer.trackedEntity = SimState.viewMode === 'orbit' ? SimState.planeEntity : undefined;
-      viewLabel && (viewLabel.textContent = SimState.viewMode.charAt(0).toUpperCase() + SimState.viewMode.slice(1));
+      if (viewLabel) viewLabel.textContent = SimState.viewMode.charAt(0).toUpperCase() + SimState.viewMode.slice(1);
     })
     .catch(() => {
       SimState.height = CONFIG.PHYSICS.GEAR_HEIGHT;
@@ -1354,10 +1391,33 @@ function drawRoute(positionsCartoDegreesArray) {
 
 
 // ==================================================================================================
-// 12) Kickoff
+// 13) Minimal developer helpers (optional)
+// ==================================================================================================
+
+// Expose some helpers to window for quick testing in console
+window.A330SIM = {
+  resetToRunway,
+  drawRoute,
+  setDebug: (on) => { DebugState.enabled = !!on; if (on) createDebugOverlay(); else toggleDebug(); },
+  setThrust: (t) => { SimState.thrustInput = clamp01(t); },
+  setView: (mode) => {
+    if (!['orbit','chase','first'].includes(mode)) return;
+    SimState.viewMode = mode;
+    SimState.viewer.trackedEntity = mode === 'orbit' ? SimState.planeEntity : undefined;
+    if (viewLabel) viewLabel.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+  }
+};
+
+
+
+// ==================================================================================================
+// 14) Kickoff
 // ==================================================================================================
 //
 // Init is triggered after login form acceptance.
-// To bypass login for development, uncomment the line below:
+// To bypass login during development, you can uncomment the line below:
 // initSim().catch(console.error);
 //
+// Make sure CONFIG.CESIUM_TOKEN and CONFIG.MODEL.AIRCRAFT_ASSET_ID are set.
+//
+// ==================================================================================================

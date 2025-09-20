@@ -1,37 +1,41 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>A330-200 Cesium Flight Simulator</title>
-  <script src="https://cesium.com/downloads/cesiumjs/releases/1.133/Build/Cesium/Cesium.js"></script>
-  <link href="https://cesium.com/downloads/cesiumjs/releases/1.133/Build/Cesium/Widgets/widgets.css" rel="stylesheet"/>
-  <link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8">
+  <title>Cesium Web Flight Simulator</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Cesium.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Widgets/widgets.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <!-- Leaflet.js for IFE tab -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <!-- Gemini API JS SDK (For prototyping; in production move to server-side) -->
+  <script src="https://unpkg.com/@google/genai/dist/bundle.umd.js"></script>
 </head>
 <body>
-  <div id="login">
-    <h1>A330-200 Flight Sim Login</h1>
-    <form id="loginForm">
-      <input type="password" id="password" placeholder="Enter password" autocomplete="current-password" />
-      <button type="submit">Login</button>
-    </form>
-  </div>
-
-  <div id="loading" class="hidden">
-    <div class="spinner"></div>
-    <div class="loading-text">Loading terrain, buildings, and aircraft...</div>
-  </div>
-
   <div id="cesiumContainer"></div>
-
-  <div id="hud">
-    <div>Speed: <span id="speed">0</span> knots</div>
-    <div>Altitude: <span id="altitude">0</span> ft</div>
-    <div>Heading: <span id="heading">0</span>°</div>
-    <div>View: <span id="viewmode">Third</span></div>
-    <div>Ground: <span id="ground">Yes</span></div>
+  <div id="hud"></div>
+  <div id="debugOverlay" class="hidden"></div>
+  <div id="joystickContainer"></div>
+  <div id="throttleContainer"></div>
+  <button id="openPassenger" title="Open Passenger Panel">🧑‍✈️ Passengers</button>
+  <div id="passengerPanel" class="hidden">
+    <button id="createIFE">+ Create IFE Tab</button>
+    <ul id="ifeTabs"></ul>
+    <button id="closePassenger" title="Close">✖️</button>
   </div>
-
-  <script src="script.js"></script>
+  <div id="autopilotPanel"></div>
+  <div id="cameraPanel">
+    <button data-cam="orbit">Orbit</button>
+    <button data-cam="chase">Chase</button>
+    <button data-cam="cockpit">First-Person</button>
+  </div>
+  <div id="atcPanel">
+    <div id="atcOutput"></div>
+    <input id="atcInput" type="text" placeholder="Say to AI ATC...">
+    <button id="atcSend">Send</button>
+  </div>
+  <script type="module" src="script.js"></script>
 </body>
 </html>

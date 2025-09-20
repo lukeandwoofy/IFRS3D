@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <title>Headwind A330neo Flight Sim</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- Cesium -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Cesium.js"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Widgets/widgets.min.css" rel="stylesheet" />
 
-  <!-- Leaflet (for passenger IFE tab) -->
+  <!-- Leaflet (for IFE tab) -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
@@ -31,6 +31,7 @@
 
   <!-- Cesium container -->
   <div id="cesiumContainer"></div>
+  <div id="cesiumCreditContainer" class="cesium-credit"></div>
 
   <!-- HUD -->
   <div id="hud">

@@ -865,7 +865,7 @@ function updateDebugLoop() {
   ];
   debugOverlay.textContent = lines.join('\n');
   requestAnimationFrame(updateDebugLoop);
-}
+
 
 // ==============================
 // End of script

@@ -1,4 +1,4 @@
-/* General reset */
+/* Reset & base */
 html, body {
   margin: 0;
   padding: 0;
@@ -48,7 +48,7 @@ html, body {
   z-index: 6;
 }
 
-/* Login */
+/* Login overlay */
 #login {
   position: absolute;
   top: 0; left: 0;
@@ -85,7 +85,7 @@ html, body {
   z-index: 9;
 }
 
-/* Controls */
+/* Controls panel */
 #controls {
   position: absolute;
   top: 60px; left: 10px;
@@ -130,7 +130,10 @@ html, body {
   z-index: 5;
 }
 #throttleSlider {
-  width: 30px; height: 150px;
+  width: 30px;
+  height: 150px;
+  writing-mode: vertical-lr;
+  direction: rtl;
 }
 #throttle .label {
   margin-top: 6px;

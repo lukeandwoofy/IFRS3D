@@ -5,7 +5,7 @@
 // 0) Configuration
 // ==============================
 export const CONFIG = {
-  CESIUM_TOKEN: 'PASTE_YOUR_CESIUM_ION_TOKEN',
+  CESIUM_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NDIwYmNkOS03MTExLTRjZGEtYjI0Yy01ZmIzYzJmOGFjNGEiLCJpZCI6MzM5NTE3LCJpYXQiOjE3NTczNTg4Mzd9.3gkVP8epIlHiy3MtC2GnDgLhvD4XbhfIsWfzuyYjDZQ',
   MODEL: {
     AIRCRAFT_ASSET_ID: 3713684, // replace if needed
     SCALE: 1.0,

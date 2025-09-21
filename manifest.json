@@ -1,0 +1,22 @@
+{
+  "name": "WebFS2025",
+  "short_name": "WebFS2025",
+  "description": "A next-generation web-based flight simulator",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "icons/webfs2025-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/webfs2025-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

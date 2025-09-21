@@ -42,3 +42,10 @@ const startAlt = 200; // meters above ground, safe for testing
   });
   viewer.trackedEntity = airplaneEntity; // camera follows aircraft by default
 })();
+let lastTime = performance.now();
+viewer.scene.preRender.addEventListener(function(scene, time) {
+  let now = performance.now();
+  let deltaTime = (now - lastTime) / 1000; // in seconds
+  lastTime = now;
+  updatePhysics(deltaTime);
+});

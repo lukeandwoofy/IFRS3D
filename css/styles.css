@@ -1,0 +1,16 @@
+ #cesiumContainer {
+  width: 100vw;
+  height: 100vh;
+  position: absolute;
+  top: 0; left: 0;
+  z-index: 1;
+}
+#hudOverlay, #debugOverlay, #joystickStatus, #passengerTab, #atcChatWindow {
+  position: absolute;
+  z-index: 2;
+}
+#hudOverlay { top: 10px; left: 10px; color: #00ff00; font-size: 24px; }
+#debugOverlay { bottom: 10px; left: 10px; color: #fff; background: rgba(0,0,0,0.5);}
+#joystickStatus { bottom: 10px; right: 10px; color: #fff; }
+#passengerTab { top: 20px; left: 20px; background: #fafafa; border: 1px solid #aaa; padding:10px; }
+#atcChatWindow { top: 60px; left: 60px; background: #232323; color: #fff; padding: 8px; width: 350px; }

@@ -1,0 +1,256 @@
+/* Reset & base */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: Arial, sans-serif;
+  background: #000;
+  color: #fff;
+}
+
+.hidden { display: none; }
+
+/* Cesium container */
+#cesiumContainer {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0; left: 0;
+}
+
+/* HUD */
+#hud {
+  position: absolute;
+  top: 10px; left: 10px;
+  background: rgba(0,0,0,0.5);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 14px;
+  display: flex;
+  gap: 10px;
+  z-index: 5;
+}
+#hud strong { font-weight: 700; }
+
+/* Debug overlay */
+#debugOverlay {
+  position: absolute;
+  bottom: 0; left: 0;
+  width: 100%;
+  max-height: 40%;
+  overflow-y: auto;
+  background: rgba(0,0,0,0.7);
+  color: #0f0;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 6px;
+  white-space: pre;
+  z-index: 6;
+}
+
+/* Login overlay */
+#login {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+#login form {
+  background: #111;
+  padding: 20px;
+  border-radius: 6px;
+  text-align: center;
+  min-width: 260px;
+}
+#login h1 {
+  margin: 0 0 8px 0;
+  font-size: 20px;
+  letter-spacing: 1px;
+}
+#login input {
+  padding: 8px;
+  margin: 10px 0;
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 4px;
+  border: 1px solid #333;
+  background: #0b0b0b;
+  color: #fff;
+}
+#login button {
+  padding: 8px 16px;
+  background: #0a84ff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Loading overlay */
+#loading {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%,-50%);
+  background: #111;
+  padding: 20px;
+  border-radius: 6px;
+  z-index: 9;
+  color: #fff;
+}
+
+/* Controls panel */
+#controls {
+  position: absolute;
+  top: 60px; left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 5;
+}
+#controls button {
+  padding: 6px 10px;
+  background: #222;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#controls button:hover { background: #2a2a2a; }
+
+/* Joystick */
+#joystick {
+  position: absolute;
+  bottom: 20px; left: 20px;
+  width: 100px; height: 100px;
+  background: rgba(50,50,50,0.6);
+  border-radius: 50%;
+  z-index: 5;
+  touch-action: none;
+  user-select: none;
+  box-shadow: inset 0 0 8px rgba(0,0,0,0.6);
+}
+#stick {
+  position: absolute;
+  width: 20px; height: 20px;
+  background: #0ff;
+  border-radius: 50%;
+  left: 40px; top: 40px;
+  transition: left 0.03s linear, top 0.03s linear;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+}
+
+/* Throttle */
+#throttle {
+  position: absolute;
+  bottom: 20px; right: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 5;
+}
+#throttleSlider {
+  width: 30px;
+  height: 150px;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  -webkit-appearance: slider-vertical;
+  background: linear-gradient(#222, #111);
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+#throttle .label {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+/* Camera panel */
+#cameraPanel {
+  position: absolute;
+  top: 10px; right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 5;
+}
+#cameraPanel button {
+  padding: 6px 10px;
+  background: #222;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#cameraPanel button:hover { background: #2a2a2a; }
+
+/* ATC panel */
+#atcPanel {
+  position: absolute;
+  bottom: 20px; left: 140px;
+  width: 320px;
+  background: rgba(0,0,0,0.6);
+  padding: 8px;
+  border-radius: 6px;
+  z-index: 5;
+  box-sizing: border-box;
+}
+#atcOutput {
+  height: 120px;
+  overflow-y: auto;
+  background: #0a0a0a;
+  padding: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+#atcPanel input[type="text"] {
+  width: calc(100% - 74px);
+  padding: 6px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  border: 1px solid #333;
+  background: #0b0b0b;
+  color: #fff;
+}
+#atcSend {
+  padding: 6px 8px;
+  margin-left: 6px;
+  background: #0a84ff;
+  border: none;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Passenger panel */
+#passengerPanel {
+  position: absolute;
+  top: 100px; left: 10px;
+  background: rgba(0,0,0,0.8);
+  padding: 10px;
+  border-radius: 6px;
+  width: 220px;
+  z-index: 5;
+}
+#passengerPanel button {
+  margin: 4px 0;
+  padding: 6px 8px;
+  background: #222;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Responsive adjustments */
+@media (max-width: 700px) {
+  #atcPanel { width: 220px; left: 10px; bottom: 90px; }
+  #controls { left: 8px; top: 70px; }
+  #joystick { width: 80px; height: 80px; bottom: 14px; left: 12px; }
+  #stick { width: 18px; height: 18px; left: 31px; top: 31px; }
+  #throttleSlider { height: 120px; }
+}

@@ -1,52 +1,95 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>WebFS2025 Flight Simulator</title>
-  <!-- CesiumJS CDN -->
-  <script src="https://cesium.com/downloads/cesiumjs/releases/1.133/Build/Cesium/Cesium.js"></script>
-  <link href="https://cesium.com/downloads/cesiumjs/releases/1.133/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
-  <!-- Leaflet.js CDN for passenger map/tab -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
-  <!-- Your CSS -->
-  <link rel="stylesheet" href="css/styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b0d10">
+
+  <!-- Cesium -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Cesium.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Widgets/widgets.min.css" rel="stylesheet" />
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Manifest -->
+  <link rel="manifest" href="manifest.json">
 </head>
 <body>
-  <div id="cesiumContainer"></div>
-  
-  <!-- HUD Overlay -->
-  <div id="hudOverlay"></div>
-  
-  <!-- Passenger Tab: Leaflet map hidden by default -->
-  <div id="passengerTab" style="display:none;">
-    <button onclick="hidePassengerTab()">Close Passenger Tab</button>
-    <div id="leafletMap" style="width:100%; height:400px;"></div>
-  </div>
-  
-  <!-- ATC Chat window -->
-  <div id="atcChatWindow" style="display:none;">
-    <div id="chatLog"></div>
-    <input id="atcInput" type="text" placeholder="Say something to ATC..." />
-    <button onclick="sendAtcMessage()">Send</button>
+  <!-- Login -->
+  <div id="login">
+    <form id="loginForm">
+      <h1>WebFS2025</h1>
+      <input type="password" id="password" placeholder="Enter password" />
+      <button type="submit">Launch</button>
+    </form>
   </div>
 
-  <!-- Joystick/Throttle UI -->
-  <div id="joystickStatus"></div>
-  
-  <!-- Debug Overlay -->
-  <div id="debugOverlay"></div>
-  
-  <!-- Scripts -->
-  <script src="js/main.js"></script>
-  <script src="js/physics.js"></script>
-  <script src="js/terrain.js"></script>
-  <script src="js/camera.js"></script>
-  <script src="js/hud.js"></script>
-  <script src="js/weather.js"></script>
-  <script src="js/leafletTab.js"></script>
-  <script src="js/atc.js"></script>
-  <script src="js/joystick.js"></script>
-  <script src="js/debug.js"></script>
+  <!-- Loading -->
+  <div id="loading" class="hidden">Loading...</div>
+
+  <!-- Cesium container -->
+  <div id="cesiumContainer"></div>
+  <div id="cesiumCreditContainer" class="cesium-credit"></div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <span>SPD: <span id="speed">0</span> kts</span>
+    <span>ALT: <span id="altitude">0</span> ft</span>
+    <span>HDG: <span id="heading">0</span>°</span>
+    <span>VIEW: <span id="viewmode">Orbit</span></span>
+    <span>GROUND: <span id="ground">Yes</span></span>
+  </div>
+
+  <!-- Debug overlay -->
+  <div id="debugOverlay" class="hidden"></div>
+
+  <!-- Controls -->
+  <div id="controls">
+    <button id="passengerBtn">Passenger Info</button>
+    <button id="autopilotBtn">Autopilot</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+
+  <!-- Joystick -->
+  <div id="joystick"><div id="stick"></div></div>
+
+  <!-- Throttle -->
+  <div id="throttle">
+    <input type="range" id="throttleSlider" min="0" max="100" value="0" />
+    <div class="label">Throttle</div>
+  </div>
+
+  <!-- Camera panel -->
+  <div id="cameraPanel">
+    <button data-cam="orbit">Orbit</button>
+    <button data-cam="chase">Chase</button>
+    <button data-cam="first">First-Person</button>
+  </div>
+
+  <!-- ATC panel -->
+  <div id="atcPanel">
+    <div id="atcOutput"></div>
+    <input id="atcInput" type="text" placeholder="Say to AI ATC..." />
+    <button id="atcSend">Send</button>
+  </div>
+
+  <!-- Passenger panel -->
+  <div id="passengerPanel" class="hidden">
+    <button id="createIFE">+ Create IFE Tab</button>
+    <ul id="ifeTabs"></ul>
+    <button id="closePassenger" title="Close">✖️</button>
+  </div>
+
+  <!-- Script -->
+  <script src="script.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./service-worker.js")
+        .then(() => console.log("Service Worker registered"))
+        .catch((err) => console.error("SW registration failed:", err));
+    }
+  </script>
 </body>
 </html>

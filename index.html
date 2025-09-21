@@ -86,5 +86,10 @@
 
   <!-- Script -->
   <script type="module" src="script.js"></script>
+  if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("./service-worker.js")
+    .then(() => console.log("Service Worker registered"))
+    .catch((err) => console.error("SW registration failed:", err));
+}
 </body>
 </html>

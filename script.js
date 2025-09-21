@@ -1,6 +1,10 @@
 // script.js — Headwind A330neo Web Flight Sim (Patrick build) — Part 1/2
 // Fully patched; integrates Cesium + Ion model 3713684, Cohere ATC, weather, IFE, autopilot, joystick.
 // Note: Replace CONFIG.ATC.COHERE_API_KEY with your Cohere key before using ATC.
+// Global state objects
+const SimState = {};
+const WeatherState = {};
+const DebugState = {};
 
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -866,3 +870,4 @@ function updateDebugLoop() {
 // ==============================
 // End of script
 // ==============================
+}); //end of the DOMcontent rein

@@ -1,351 +1,281 @@
-// main.js — WebFS2025 modular bootstrap
-// Orchestrates: Cesium init, global app state, dynamic module loading, main loop.
+// main.js — WebFS2025 bootstrap
+import * as physics from './physics.js';
+import * as controls from './controls.js';
+import * as camera from './camera.js';
+import * as weather from './weather.js';
+import * as ui from './ui.js';
+import * as autopilot from './autopilot.js';
+import * as atc from './atc.js';
+import * as passenger from './passenger.js';
+import * as persistence from './persistence.js';
+import * as multiplayer from './multiplayer.js';
 
-// ==============================
-// 0) Configuration
-// ==============================
 export const CONFIG = {
-  CESIUM_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NDIwYmNkOS03MTExLTRjZGEtYjI0Yy01ZmIzYzJmOGFjNGEiLCJpZCI6MzM5NTE3LCJpYXQiOjE3NTczNTg4Mzd9.3gkVP8epIlHiy3MtC2GnDgLhvD4XbhfIsWfzuyYjDZQ',
-  MODEL: {
-    AIRCRAFT_ASSET_ID: 3713684, // replace if needed
-    SCALE: 1.0,
-    MIN_PIXEL_SIZE: 96,
-    RUN_ANIMATIONS: false
-  },
-  SPAWN: {
-    LON_DEG: -9.1358, // Lisbon area
-    LAT_DEG: 38.7812,
-    HEADING_DEG: 30.0
-  },
+  CESIUM_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NDIwYmNkOS03MTExLTRjZGEtYjI0Yy01ZmIzYzJmOGFjNGEiLCJpZCI6MzM5NTE3LCJpYXQiOjE3NTczNTg4Mzd9.3gkVP8epIlHiy3MtC2GnDgLhvD4XbhfIsWfzuyYjDZQ', // ← insert your Cesium Ion token here
   VIEWER: {
-    BASE_LAYER_PICKER: true,
+    BASE_LAYER_PICKER: false,
     REQUEST_RENDER_MODE: true,
-    MAXIMUM_RENDER_TIME_CHANGE: Infinity,
-    DEPTH_TEST_TERRAIN: true,
-    OSM_BUILDINGS: true,
+    MAXIMUM_RENDER_TIME_CHANGE: 16,
     CREDIT_CONTAINER_ID: 'cesiumCreditContainer'
+  },
+  PHYSICS: {
+    MAX_THRUST_ACCEL: 8.0,
+    DRAG_COEFF: 0.02,
+    LIFT_COEFF: 0.0025,
+    G: 9.81,
+    GEAR_HEIGHT: 1.2,
+    GROUND_STICTION_THRESH: 1.0,
+    GROUND_STICTION_PUSH: 0.5,
+    MAX_BANK_RATE: 0.9,
+    MAX_PITCH_RATE: 0.75,
+    MAX_YAW_RATE: 0.9,
+    ROLL_DAMP_AIR: 0.995,
+    PITCH_DAMP_AIR: 0.995
+  },
+  WEATHER: {
+    ENABLED: true,
+    UPDATE_SECONDS: 180,
+    CLOUDS_OVERCAST_THRESHOLD: 75,
+    CLOUD_SPRITES_MAX: 28,
+    CLOUD_LAYER_ALT_M: 1800,
+    CLOUD_RADIUS_M: 2000,
+    SNOW_TEMP_C: 0,
+    PRECIP_MIN: 0.05,
+    HEAVY_MM_H: 3.5
   },
   CAMERA: {
     CHASE_BACK: 220,
     CHASE_UP: 72,
     FP_AHEAD: 8,
     FP_UP: 2.4,
-    SMOOTH_FACTOR: 0.02
+    SMOOTH_FACTOR: 0.08
   },
-  PHYSICS: {
-    G: 9.81,
-    MAX_THRUST_ACCEL: 14.0,
-    DRAG_COEFF: 0.006,
-    LIFT_COEFF: 0.95,
-    GEAR_HEIGHT: 2.8
+  MULTIPLAYER: {
+    SERVER_URL: '', // ← set if using multiplayer
+    callsign: 'WEBFS'
   },
-  WEATHER: {
-    ENABLED: true,
-    UPDATE_SECONDS: 180
+  ATC: {
+    COHERE_API_KEY: '' // ← optional
   },
-  DEBUG: {
-    ENABLED: false
+  PASSENGER: {
+    LEAFLET_JS: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+    LEAFLET_CSS: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
   }
 };
 
-// ==============================
-// 1) Global app state
-// ==============================
-export const App = {
-  // Cesium
-  viewer: null,
-  planeEntity: null,
+export const U = {
+  clamp: (v, a, b) => Math.min(b, Math.max(a, v)),
+  clamp01: (v) => Math.min(1, Math.max(0, v)),
+  deg2rad: (d) => (d * Math.PI) / 180,
+  rad2deg: (r) => (r * 180) / Math.PI,
+  ms2kts: (m) => m * 1.943844,
+  m2ft: (m) => m * 3.28084,
+  hprQuat: (pos, heading, pitch, roll) => {
+    const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
+    return Cesium.Transforms.headingPitchRollQuaternion(pos, hpr);
+  }
+};
 
-  // Pose
+export const App = {
   lonRad: 0,
   latRad: 0,
-  heightM: 0,
+  heightM: 1000,
   heading: 0,
   pitch: 0,
   roll: 0,
-
-  // Kinematics
   speedMS: 0,
   vSpeedMS: 0,
   thrustInput: 0,
-  onGround: true,
-
-  // Time
-  lastTs: 0,
-  dt: 0,
-
-  // View
-  viewMode: 'orbit', // 'orbit' | 'chase' | 'first'
-  camPosSmooth: null,
-
-  // Input
+  onGround: false,
+  viewMode: 'orbit',
   keys: {},
-
-  // Hooks registry for modules
-  hooks: {
-    init: [],
-    update: [],
-    lateUpdate: [],
-    dispose: []
-  },
-
-  // Utility to register hooks
-  onInit(fn){ this.hooks.init.push(fn); },
-  onUpdate(fn){ this.hooks.update.push(fn); },
-  onLateUpdate(fn){ this.hooks.lateUpdate.push(fn); },
-  onDispose(fn){ this.hooks.dispose.push(fn); }
+  viewer: null,
+  planeEntity: null,
+  camPosSmooth: null,
+  autopilot: null
 };
 
-// ==============================
-// 2) Utilities
-// ==============================
-export const U = {
-  deg2rad: (d) => Cesium.Math.toRadians(d),
-  rad2deg: (r) => Cesium.Math.toDegrees(r),
-  ms2kts: (ms) => ms * 1.94384,
-  m2ft: (m) => m * 3.28084,
-  clamp: (x, a, b) => Math.max(a, Math.min(b, x)),
-  clamp01: (x) => Math.max(0, Math.min(1, x)),
-  hprQuat(position, h, p, r) {
-    return Cesium.Transforms.headingPitchRollQuaternion(
-      position, new Cesium.HeadingPitchRoll(h, p, r)
-    );
-  }
+const Modules = {
+  physics,
+  controls,
+  camera,
+  weather,
+  ui,
+  autopilot,
+  atc,
+  passenger,
+  persistence,
+  multiplayer
 };
 
-// ==============================
-// 3) Optional module loader
-// ==============================
-// Modules are optional. If a file is missing, we keep going.
-// Create files with these names to plug systems in.
-const Modules = {};
-async function tryLoadModule(name, path) {
-  try {
-    const mod = await import(path);
-    Modules[name] = mod;
-    if (typeof mod.attach === 'function') {
-      await mod.attach(App, CONFIG, U);
+function attachAll() {
+  for (const name in Modules) {
+    try {
+      Modules[name].attach?.(App, CONFIG, U, Modules);
+      console.log(`[WebFS2025] Loaded module: ${name}`);
+    } catch (e) {
+      console.warn(`[WebFS2025] Failed to attach ${name}:`, e);
     }
-    if (typeof mod.init === 'function') {
-      App.onInit(() => mod.init(App, CONFIG, U));
-    }
-    if (typeof mod.update === 'function') {
-      App.onUpdate((dt) => mod.update(App, dt, CONFIG, U));
-    }
-    if (typeof mod.lateUpdate === 'function') {
-      App.onLateUpdate((dt) => mod.lateUpdate(App, dt, CONFIG, U));
-    }
-    if (typeof mod.dispose === 'function') {
-      App.onDispose(() => mod.dispose(App));
-    }
-    console.log(`[WebFS2025] Loaded module: ${name}`);
-  } catch (e) {
-    console.warn(`[WebFS2025] Module not available: ${name} (${path})`, e?.message || e);
   }
 }
 
-// ==============================
-// 4) Boot: DOM ready
-// ==============================
-document.addEventListener('DOMContentLoaded', () => {
-  boot().catch(err => {
-    console.error('Boot error:', err);
-    alert('Initialization failed. See console for details.');
+async function initAll() {
+  for (const name in Modules) {
+    try {
+      await Modules[name].init?.();
+    } catch (e) {
+      console.warn(`[WebFS2025] Init failed: ${name}`, e);
+    }
+  }
+}
+
+function initKeyboard() {
+  window.addEventListener('keydown', (e) => {
+    const k = (e.key || '').toLowerCase();
+    if (k) App.keys[k] = true;
+    if (e.code) App.keys[e.code] = true;
   });
-});
+  window.addEventListener('keyup', (e) => {
+    const k = (e.key || '').toLowerCase();
+    if (k) App.keys[k] = false;
+    if (e.code) App.keys[e.code] = false;
+  });
+}
 
-// ==============================
-// 5) Boot sequence
-// ==============================
-async function boot() {
-  // 5.1 Login gate (optional)
-  const loginForm = document.getElementById('loginForm');
-  const loginDiv = document.getElementById('login');
-  const password = document.getElementById('password');
-  const loading = document.getElementById('loading');
+async function createViewer() {
+  if (CONFIG.CESIUM_TOKEN) Cesium.Ion.defaultAccessToken = CONFIG.CESIUM_TOKEN;
 
-  if (loginForm && loginDiv) {
-    await new Promise((resolve) => {
-      loginForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        if ((password?.value || '').trim() === 'A330') {
-          loginDiv.style.display = 'none';
-          resolve();
-        } else {
-          alert('Incorrect password');
-        }
-      }, { once: true });
-    });
+  let terrainProvider;
+  try {
+    terrainProvider = await Cesium.createWorldTerrainAsync?.();
+  } catch {
+    terrainProvider = new Cesium.EllipsoidTerrainProvider();
   }
 
-  loading?.classList.remove('hidden');
-
-  // 5.2 Cesium viewer
-  Cesium.Ion.defaultAccessToken = CONFIG.CESIUM_TOKEN;
   const viewer = new Cesium.Viewer('cesiumContainer', {
-    terrainProvider: Cesium.Terrain.fromWorldTerrain(),
-    sceneModePicker: false, timeline: false, animation: false, baseLayerPicker: CONFIG.VIEWER.BASE_LAYER_PICKER,
-    geocoder: false, homeButton: false, navigationHelpButton: false,
-    selectionIndicator: false, infoBox: false,
+    terrainProvider,
+    sceneModePicker: false,
+    timeline: false,
+    animation: false,
+    baseLayerPicker: CONFIG.VIEWER.BASE_LAYER_PICKER,
+    geocoder: false,
+    homeButton: false,
+    navigationHelpButton: false,
+    selectionIndicator: false,
+    infoBox: false,
     requestRenderMode: CONFIG.VIEWER.REQUEST_RENDER_MODE,
     maximumRenderTimeChange: CONFIG.VIEWER.MAXIMUM_RENDER_TIME_CHANGE,
-    creditContainer: document.getElementById(CONFIG.VIEWER.CREDIT_CONTAINER_ID) || undefined
+    creditContainer: document.getElementById(CONFIG.VIEWER.CREDIT_CONTAINER_ID)
   });
-  if (CONFIG.VIEWER.DEPTH_TEST_TERRAIN) viewer.scene.globe.depthTestAgainstTerrain = true;
-
-  // Visual polish
-  viewer.scene.globe.enableLighting = true;
-  viewer.scene.globe.dynamicAtmosphereLighting = true;
-  viewer.scene.skyAtmosphere.hueShift = -0.015;
-  viewer.scene.skyAtmosphere.saturationShift = -0.18;
-  viewer.scene.skyAtmosphere.brightnessShift = -0.06;
-  viewer.scene.fog.enabled = true;
-  viewer.scene.fog.density = 0.0016;
-
-  if (CONFIG.VIEWER.OSM_BUILDINGS) {
-    try {
-      const osm = await Cesium.createOsmBuildingsAsync();
-      viewer.scene.primitives.add(osm);
-    } catch (e) {
-      console.warn('OSM buildings failed to load:', e);
-    }
-  }
 
   App.viewer = viewer;
+  return viewer;
+}
 
-  // 5.3 Spawn
-  App.lonRad = U.deg2rad(CONFIG.SPAWN.LON_DEG);
-  App.latRad = U.deg2rad(CONFIG.SPAWN.LAT_DEG);
-  App.heading = U.deg2rad(CONFIG.SPAWN.HEADING_DEG);
-  App.pitch = 0;
-  App.roll = 0;
+// --- boot, loop, and lifecycle (second half of main.js) ---
 
-  // Sample terrain for spawn height
-  const startCarto = new Cesium.Cartographic(App.lonRad, App.latRad);
-  let terrainH = 0;
+export async function boot() {
   try {
-    const samples = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [startCarto]);
-    terrainH = samples?.[0]?.height ?? 0;
-  } catch (e) {
-    console.warn('Terrain sample failed at spawn:', e);
-  }
-  App.heightM = terrainH + CONFIG.PHYSICS.GEAR_HEIGHT;
+    initKeyboard();
 
-  // 5.4 Load aircraft model (fallback to point)
-  const pos = Cesium.Cartesian3.fromRadians(App.lonRad, App.latRad, App.heightM);
-  let modelUri = null;
-  try {
-    modelUri = await Cesium.IonResource.fromAssetId(CONFIG.MODEL.AIRCRAFT_ASSET_ID);
-  } catch (e) {
-    console.warn('Ion model load failed, using point fallback:', e);
-  }
-  App.planeEntity = viewer.entities.add({
-    position: pos,
-    model: modelUri ? {
-      uri: modelUri,
-      scale: CONFIG.MODEL.SCALE,
-      minimumPixelSize: CONFIG.MODEL.MIN_PIXEL_SIZE,
-      runAnimations: CONFIG.MODEL.RUN_ANIMATIONS
-    } : undefined,
-    point: modelUri ? undefined : { color: Cesium.Color.CYAN, pixelSize: 12 },
-    orientation: U.hprQuat(pos, App.heading, App.pitch, App.roll)
-  });
+    const viewer = await createViewer();
 
-  // 5.5 Camera initial view
-  try {
-    await viewer.flyTo(App.planeEntity, {
-      duration: 1.0,
-      offset: new Cesium.HeadingPitchRange(0, -Cesium.Math.PI_OVER_FOUR, 500)
+    // initial position cartesian (use radians inputs stored in App)
+    const startPos = Cesium.Cartesian3.fromRadians(App.lonRad, App.latRad, App.heightM || 1000);
+    App.planeEntity = viewer.entities.add({
+      id: 'player-plane',
+      position: startPos,
+      model: {
+        uri: '', // optional: set to a mesh or Ion asset if available
+        scale: 1.0,
+        minimumPixelSize: 48
+      }
     });
-  } catch {}
-  App.viewMode = 'orbit';
-  viewer.trackedEntity = App.planeEntity;
 
-  // 5.6 Load modules (optional, safe if missing)
-  await Promise.all([
-    tryLoadModule('physics', './physics.js'),
-    tryLoadModule('controls', './controls.js'),
-    tryLoadModule('camera', './camera.js'),
-    tryLoadModule('weather', './weather.js'),
-    tryLoadModule('ui', './ui.js'),
-    tryLoadModule('autopilot', './autopilot.js'),
-    tryLoadModule('atc', './atc.js'),
-    tryLoadModule('passenger', './passenger.js'),
-    tryLoadModule('persistence', './persistence.js'),
-    tryLoadModule('multiplayer', './multiplayer.js')
-  ]);
+    // initialize smooth camera storage
+    App.camPosSmooth = viewer.camera.position.clone?.() || new Cesium.Cartesian3();
 
-  // 5.7 Run module init hooks
-  for (const fn of App.hooks.init) {
-    try { await fn(); } catch (e) { console.warn('Init hook error:', e); }
+    // attach modules now that viewer exists
+    attachAll();
+
+    // init modules (some may be async)
+    await initAll();
+
+    // try a single terrain sample to place aircraft on ground if terrain exists
+    try {
+      if (typeof Cesium.sampleTerrainMostDetailed === 'function' && viewer && viewer.terrainProvider) {
+        const carto = new Cesium.Cartographic(App.lonRad, App.latRad);
+        const samples = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [carto]);
+        const height = samples?.[0]?.height;
+        if (typeof height === 'number') {
+          const minH = height + (CONFIG.PHYSICS.GEAR_HEIGHT || 1.2);
+          if (App.heightM < minH) {
+            App.heightM = minH;
+            App.onGround = true;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[WebFS2025] Terrain sample at spawn failed:', e);
+    }
+
+    // Start main loop
+    lastTime = performance.now();
+    requestAnimationFrame(loop);
+  } catch (err) {
+    console.error('[WebFS2025] Boot failed:', err);
   }
+}
 
-  loading?.classList.add('hidden');
+let lastTime = 0;
 
-  // 5.8 Start main loop
-  App.lastTs = performance.now();
+// safeCall helper to isolate module errors
+function safeCall(mod, fnName, ...args) {
+  try {
+    if (!mod) return;
+    const fn = mod[fnName];
+    if (typeof fn === 'function') return fn(...args);
+  } catch (e) {
+    console.warn(`[WebFS2025] Module ${mod?.name || fnName} ${fnName} error:`, e);
+  }
+}
+
+function loop(now) {
+  const dt = Math.min(0.1, ((now || performance.now()) - lastTime) / 1000 || 0.016);
+  lastTime = now || performance.now();
+
+  // update pipeline (order matters)
+  safeCall(controls, 'update', App, dt);
+  safeCall(physics, 'update', App, dt);
+  safeCall(camera, 'lateUpdate', dt);
+  safeCall(weather, 'update', App, dt);
+  safeCall(ui, 'lateUpdate', dt);
+  safeCall(autopilot, 'update', App, dt);
+  safeCall(atc, 'update', App, dt);
+  safeCall(passenger, 'update', App, dt);
+  safeCall(persistence, 'update', App, dt);
+  safeCall(multiplayer, 'update', App, dt);
+
   requestAnimationFrame(loop);
 }
 
-// ==============================
-// 6) Main loop
-// ==============================
-function loop(ts) {
-  const now = ts || performance.now();
-  const dtRaw = (now - App.lastTs) / 1000;
-  App.dt = U.clamp(dtRaw, 0.001, 0.05);
-  App.lastTs = now;
-
-  // Module updates
-  for (const fn of App.hooks.update) {
-    try { fn(App.dt); } catch (e) { console.warn('Update hook error:', e); }
+export async function shutdown() {
+  try {
+    for (const name in Modules) {
+      try {
+        await Modules[name].dispose?.();
+      } catch (e) {
+        console.warn(`[WebFS2025] Dispose failed for ${name}:`, e);
+      }
+    }
+    if (App.viewer && typeof App.viewer.destroy === 'function') {
+      try { App.viewer.destroy(); } catch (e) { /* ignore */ }
+    }
+    App.viewer = null;
+  } catch (e) {
+    console.warn('[WebFS2025] Shutdown error:', e);
   }
-
-  // Commit pose to Cesium
-  commitPose();
-
-  // Late updates (camera, UI, etc.)
-  for (const fn of App.hooks.lateUpdate) {
-    try { fn(App.dt); } catch (e) { console.warn('LateUpdate hook error:', e); }
-  }
-
-  // Render request (for requestRenderMode viewers)
-  App.viewer?.scene?.requestRender();
-
-  requestAnimationFrame(loop);
 }
 
-// ==============================
-// 7) Commit pose to Cesium
-// ==============================
-function commitPose() {
-  if (!App.viewer || !App.planeEntity) return;
-
-  // Update entity position/orientation
-  const pos = Cesium.Cartesian3.fromRadians(App.lonRad, App.latRad, App.heightM);
-  const quat = U.hprQuat(pos, App.heading, App.pitch, App.roll);
-
-  App.planeEntity.position = pos;
-  App.planeEntity.orientation = quat;
-}
-
-// ==============================
-// 8) Global keyboard wiring (basic)
-// ==============================
-window.addEventListener('keydown', (e) => {
-  App.keys[e.key.toLowerCase()] = true;
-  App.keys[e.code] = true;
-});
-window.addEventListener('keyup', (e) => {
-  App.keys[e.key.toLowerCase()] = false;
-  App.keys[e.code] = false;
-});
-
-// ==============================
-// 9) Cleanup on unload
-// ==============================
-window.addEventListener('beforeunload', () => {
-  for (const fn of App.hooks.dispose) {
-    try { fn(); } catch {}
-  }
-});
+// auto-start on import
+boot().catch((e) => console.error('[WebFS2025] Boot exception:', e));

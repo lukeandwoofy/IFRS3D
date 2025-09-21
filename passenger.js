@@ -1,10 +1,14 @@
-// passenger.js — Passenger IFE module for WebFS2025
+// passenger.js — Passenger IFE module (fixed popup, correct lon, robust postMessage)
 // Exports: attach, init, openIFE, sendUpdate, update, dispose
 // Purpose:
 //  - Open a passenger IFE popup showing a Leaflet map and minimal flight stats
 //  - Periodically post position updates to the IFE window
 //  - Provide a UI hook for the passenger panel in index.html
-// Dependencies: main.js providing App, CONFIG, U
+// Fixes applied:
+//  - Corrected longitude bug (used App.lonRad instead of App.latRad)
+//  - Robust popup open detection and feature string
+//  - Safe postMessage with try/catch and popup alive checks
+//  - Exposed small public API for manual update triggers
 
 let App, CONFIG, U;
 let paxWindow = null;
@@ -31,42 +35,56 @@ export function init() {
   });
 }
 
+// Lightweight per-frame check
 export function update(_app, dt) {
-  // ensure popup is still alive; clear timer if closed
+  // Clear timer if popup closed or navigated away
   if (paxWindow && paxWindow.closed) {
-    paxWindow = null;
     stopUpdates();
+    paxWindow = null;
   }
 }
 
 // Open or focus the IFE popup and start updates
 export function openIFE() {
-  if (paxWindow && !paxWindow.closed) {
-    paxWindow.focus();
-    return;
-  }
-
-  // Minimal blank name so we can write into it
-  paxWindow = window.open('', '_blank', 'noopener,width=720,height=600');
-  if (!paxWindow) {
-    alert('Pop-up blocked. Allow pop-ups for the IFE window.');
+  // Popup features for consistent size and no toolbar
+  const features = 'noopener,noreferrer,width=900,height=700,scrollbars=yes';
+  try {
+    if (paxWindow && !paxWindow.closed) {
+      paxWindow.focus();
+      return;
+    }
+    paxWindow = window.open('', '_blank', features);
+  } catch (e) {
     paxWindow = null;
+  }
+
+  if (!paxWindow) {
+    // Popup blocked; inform user via UI if available
+    const panel = document.getElementById('passengerPanel');
+    if (panel) {
+      panel.classList.remove('hidden');
+    }
+    alert('Pop-up blocked. Allow pop-ups for this site to open the Passenger IFE.');
     return;
   }
 
-  // Build the IFE HTML
+  writeIFE(paxWindow);
+  startUpdates(true);
+}
+
+// Write the HTML into the popup
+function writeIFE(win) {
   const leafletCss = (CONFIG.PASSENGER && CONFIG.PASSENGER.LEAFLET_CSS) || 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
   const leafletJs = (CONFIG.PASSENGER && CONFIG.PASSENGER.LEAFLET_JS) || 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-
-  const initialLat = (U && App) ? U.rad2deg(App.latRad || 0) : 0;
-  const initialLon = (U && App) ? U.rad2deg(App.lonRad || 0) : 0;
+  const lat = U.rad2deg(App.latRad || 0);
+  const lon = U.rad2deg(App.lonRad || 0);
 
   const html = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>WebFS2025 Passenger IFE</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WebFS2025 Passenger IFE</title>
 <link rel="stylesheet" href="${leafletCss}">
 <style>
   body{margin:0;background:#071423;color:#fff;font-family:system-ui,Segoe UI,Roboto,Arial}
@@ -80,8 +98,8 @@ export function openIFE() {
 <header>Passenger Map — WebFS2025</header>
 <div id="map"></div>
 <div id="stats">
-  <div class="stat">Lat: <span id="lat">${initialLat.toFixed(4)}</span></div>
-  <div class="stat">Lon: <span id="lon">${initialLon.toFixed(4)}</span></div>
+  <div class="stat">Lat: <span id="lat">${lat.toFixed(4)}</span></div>
+  <div class="stat">Lon: <span id="lon">${lon.toFixed(4)}</span></div>
   <div class="stat">Alt: <span id="alt">--</span> ft</div>
   <div class="stat">Speed: <span id="spd">--</span> kts</div>
   <div class="stat">Heading: <span id="hdg">--</span>°</div>
@@ -102,14 +120,22 @@ export function openIFE() {
   }
   function update(lat, lon, altFt, kts, hdg) {
     if (!map) initMap(lat, lon);
-    marker.setLatLng([lat, lon]);
-    tail.addLatLng([lat, lon]);
-    if (tail.getLatLngs().length > 2000) tail.getLatLngs().shift();
-    document.getElementById('lat').textContent = lat.toFixed(4);
-    document.getElementById('lon').textContent = lon.toFixed(4);
-    document.getElementById('alt').textContent = Math.round(altFt);
-    document.getElementById('spd').textContent = Math.round(kts);
-    document.getElementById('hdg').textContent = Math.round(hdg);
+    try {
+      marker.setLatLng([lat, lon]);
+      tail.addLatLng([lat, lon]);
+      if (tail.getLatLngs().length > 2000) {
+        const pts = tail.getLatLngs();
+        pts.shift();
+        tail.setLatLngs(pts);
+      }
+      document.getElementById('lat').textContent = lat.toFixed(4);
+      document.getElementById('lon').textContent = lon.toFixed(4);
+      document.getElementById('alt').textContent = Math.round(altFt);
+      document.getElementById('spd').textContent = Math.round(kts);
+      document.getElementById('hdg').textContent = Math.round(hdg);
+    } catch (e) {
+      // ignore errors if page navigated or DOM changed
+    }
   }
   window.addEventListener('message', (ev) => {
     const m = ev.data || {};
@@ -121,37 +147,25 @@ export function openIFE() {
 </body>
 </html>`;
 
-  paxWindow.document.open();
-  paxWindow.document.write(html);
-  paxWindow.document.close();
-
-  startUpdates();
-}
-
-// Send a single update to the IFE popup
-export function sendUpdate() {
-  if (!paxWindow || paxWindow.closed) return;
-  const lat = U.rad2deg(App.latRad || 0);
-  const lon = U.rad2deg(App.latRad ? App.lonRad : 0);
-  const altFt = Math.round(U.m2ft(App.heightM || 0));
-  const kts = Math.round(U.ms2kts(App.speedMS || 0));
-  const hdg = Math.round((U.rad2deg(App.heading || 0) + 360) % 360);
   try {
-    paxWindow.postMessage({
-      type: 'pax:pos',
-      lat, lon, altFt, kts, hdgDeg: hdg
-    }, '*');
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
   } catch (e) {
-    // ignore cross-origin/post errors for cases where popup navigates away
+    // writing into popup may fail if cross-origin navigated; close it to be safe
+    try { win.close(); } catch {}
+    paxWindow = null;
   }
 }
 
-function startUpdates() {
+// Start periodic updates (force = send immediate)
+function startUpdates(force) {
   stopUpdates();
-  sendUpdate();
+  if (force) sendUpdate();
   updateTimer = setInterval(sendUpdate, UPDATE_MS);
 }
 
+// Stop updates
 function stopUpdates() {
   if (updateTimer) {
     clearInterval(updateTimer);
@@ -159,10 +173,44 @@ function stopUpdates() {
   }
 }
 
+// Send a single update to the IFE popup
+export function sendUpdate() {
+  if (!paxWindow || paxWindow.closed) {
+    stopUpdates();
+    paxWindow = null;
+    return;
+  }
+  const lat = U.rad2deg(App.latRad || 0);
+  const lon = U.rad2deg(App.lonRad || 0); // FIX: use lonRad
+  const altFt = Math.round(U.m2ft(App.heightM || 0));
+  const kts = Math.round(U.ms2kts(App.speedMS || 0));
+  const hdg = Math.round((U.rad2deg(App.heading || 0) + 360) % 360);
+
+  try {
+    paxWindow.postMessage({
+      type: 'pax:pos',
+      lat, lon, altFt, kts, hdgDeg: hdg
+    }, '*');
+  } catch (e) {
+    // popup may have navigated away or disallowed messages; close and stop updates
+    try { paxWindow.close(); } catch {}
+    paxWindow = null;
+    stopUpdates();
+  }
+}
+
 export function dispose() {
   stopUpdates();
-  if (paxWindow && !paxWindow.closed) paxWindow.close();
+  if (paxWindow && !paxWindow.closed) {
+    try { paxWindow.close(); } catch {}
+  }
   paxWindow = null;
+
+  // Remove any DOM listeners added in init (best-effort)
+  const passengerBtn = document.getElementById('passengerBtn');
+  const createIFE = document.getElementById('createIFE');
+  if (passengerBtn) passengerBtn.removeEventListener('click', togglePassengerPanel);
+  if (createIFE) createIFE.removeEventListener('click', openIFE);
 }
 
 // Helper to toggle the passenger panel in the main UI

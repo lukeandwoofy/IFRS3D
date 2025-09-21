@@ -1,7 +1,8 @@
-/* General */
-body, html {
+/* General reset */
+html, body {
   margin: 0;
   padding: 0;
+  height: 100%;
   overflow: hidden;
   font-family: Arial, sans-serif;
   background: #000;
@@ -13,8 +14,7 @@ body, html {
 /* Cesium container */
 #cesiumContainer {
   width: 100%;
-  height: 100vh;
-  display: block;
+  height: 100%;
   position: absolute;
   top: 0; left: 0;
 }
@@ -29,6 +29,7 @@ body, html {
   font-size: 14px;
   display: flex;
   gap: 10px;
+  z-index: 5;
 }
 
 /* Debug overlay */
@@ -44,6 +45,7 @@ body, html {
   font-size: 12px;
   padding: 6px;
   white-space: pre;
+  z-index: 6;
 }
 
 /* Login */
@@ -72,7 +74,7 @@ body, html {
   padding: 8px 16px;
 }
 
-/* Loading */
+/* Loading overlay */
 #loading {
   position: absolute;
   top: 50%; left: 50%;
@@ -90,6 +92,7 @@ body, html {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  z-index: 5;
 }
 #controls button {
   padding: 6px 10px;
@@ -97,6 +100,7 @@ body, html {
   color: #fff;
   border: 1px solid #555;
   border-radius: 4px;
+  cursor: pointer;
 }
 
 /* Joystick */
@@ -106,6 +110,7 @@ body, html {
   width: 100px; height: 100px;
   background: rgba(50,50,50,0.6);
   border-radius: 50%;
+  z-index: 5;
 }
 #stick {
   position: absolute;
@@ -122,10 +127,9 @@ body, html {
   display: flex;
   flex-direction: column;
   align-items: center;
+  z-index: 5;
 }
 #throttleSlider {
-  writing-mode: bt-lr;
-  -webkit-appearance: slider-vertical;
   width: 30px; height: 150px;
 }
 #throttle .label {
@@ -139,6 +143,7 @@ body, html {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  z-index: 5;
 }
 #cameraPanel button {
   padding: 6px 10px;
@@ -146,6 +151,7 @@ body, html {
   color: #fff;
   border: 1px solid #555;
   border-radius: 4px;
+  cursor: pointer;
 }
 
 /* ATC panel */
@@ -156,6 +162,7 @@ body, html {
   background: rgba(0,0,0,0.6);
   padding: 6px;
   border-radius: 4px;
+  z-index: 5;
 }
 #atcOutput {
   height: 120px;
@@ -181,8 +188,14 @@ body, html {
   padding: 10px;
   border-radius: 6px;
   width: 200px;
+  z-index: 5;
 }
 #passengerPanel button {
   margin: 4px 0;
   padding: 4px 8px;
+  background: #222;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  cursor: pointer;
 }

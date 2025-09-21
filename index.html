@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>WebFS2025</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b0d10" />
+
+  <!-- Cesium -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Widgets/widgets.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Cesium.js"></script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- App manifest -->
+  <link rel="manifest" href="manifest.json" />
+</head>
+<body>
+  <!-- Login overlay -->
+  <div id="login">
+    <form id="loginForm">
+      <h1>WebFS2025</h1>
+      <input id="password" type="password" placeholder="Enter password" />
+      <button type="submit">Launch</button>
+    </form>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading" class="hidden">Loading...</div>
+
+  <!-- Cesium container -->
+  <div id="cesiumContainer"></div>
+  <div id="cesiumCreditContainer" class="cesium-credit"></div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <span>SPD: <strong id="speed">0</strong> kts</span>
+    <span>ALT: <strong id="altitude">0</strong> ft</span>
+    <span>HDG: <strong id="heading">0</strong>°</span>
+    <span>VIEW: <strong id="viewmode">Orbit</strong></span>
+    <span>GROUND: <strong id="ground">Yes</strong></span>
+  </div>
+
+  <!-- Debug overlay -->
+  <div id="debugOverlay" class="hidden"></div>
+
+  <!-- Controls -->
+  <div id="controls">
+    <button id="passengerBtn">Passenger Info</button>
+    <button id="autopilotBtn">Autopilot</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+
+  <!-- Joystick -->
+  <div id="joystick"><div id="stick"></div></div>
+
+  <!-- Throttle -->
+  <div id="throttle">
+    <input id="throttleSlider" type="range" min="0" max="100" value="0" />
+    <div class="label">Throttle</div>
+  </div>
+
+  <!-- Camera panel -->
+  <div id="cameraPanel">
+    <button data-cam="orbit">Orbit</button>
+    <button data-cam="chase">Chase</button>
+    <button data-cam="first">First-Person</button>
+  </div>
+
+  <!-- ATC panel -->
+  <div id="atcPanel">
+    <div id="atcOutput"></div>
+    <input id="atcInput" type="text" placeholder="Say to AI ATC..." />
+    <button id="atcSend">Send</button>
+  </div>
+
+  <!-- Passenger panel -->
+  <div id="passengerPanel" class="hidden">
+    <button id="createIFE">+ Create IFE Tab</button>
+    <ul id="ifeTabs"></ul>
+    <button id="closePassenger" title="Close">✖️</button>
+  </div>
+
+  <!-- Scripts (module bootstrap) -->
+  <script type="module" src="main.js"></script>
+
+  <!-- Service worker registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
+    }
+  </script>
+</body>
+</html>

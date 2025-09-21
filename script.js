@@ -834,7 +834,7 @@ function resetToRunway() {
     .catch(() => {
       SimState.height = CONFIG.PHYSICS.GEAR_HEIGHT;
       commitPose(SimState.height);
-    });
+    })
 }
 
 function showDebugOverlay(on) {
@@ -862,6 +862,7 @@ function updateDebugLoop() {
   debugOverlay.textContent = lines.join('\n');
   requestAnimationFrame(updateDebugLoop);
 }
+});
 
 // ==============================
 // End of script

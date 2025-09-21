@@ -2,27 +2,28 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Headwind A330neo Flight Sim</title>
+  <title>WebFS2025 Flight Simulator</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b0d10">
 
   <!-- Cesium -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Cesium.js"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Widgets/widgets.min.css" rel="stylesheet" />
 
-  <!-- Leaflet (for IFE tab) -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet (IFE) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
   <!-- Styles -->
   <link rel="stylesheet" href="style.css" />
 
+  <!-- Manifest -->
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
   <!-- Login -->
   <div id="login">
     <form id="loginForm">
-      <h1>Headwind A330neo</h1>
+      <h1>WebFS2025</h1>
       <input type="password" id="password" placeholder="Enter password" />
       <button type="submit">Launch</button>
     </form>
@@ -87,11 +88,14 @@
   </div>
 
   <!-- Script -->
-  <script type="module" src="script.js"></script>
-  if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./service-worker.js")
-    .then(() => console.log("Service Worker registered"))
-    .catch((err) => console.error("SW registration failed:", err));
-}
+  <script src="script.js"></script>
+  <script>
+    // Register service worker for PWA
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./service-worker.js")
+        .then(() => console.log("Service Worker registered"))
+        .catch((err) => console.error("SW registration failed:", err));
+    }
+  </script>
 </body>
 </html>

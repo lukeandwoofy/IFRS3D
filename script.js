@@ -1,12 +1,5 @@
-// script.js — Headwind A330neo Web Flight Sim (Patrick build) — Part 1/2
-// Fully patched; integrates Cesium + Ion model 3713684, Cohere ATC, weather, IFE, autopilot, joystick.
-// Note: Replace CONFIG.ATC.COHERE_API_KEY with your Cohere key before using ATC.
-// Global state objects
-const SimState = {};
-const WeatherState = {};
-const DebugState = {};
-
-document.addEventListener('DOMContentLoaded', () => {
+// script.js — WebFS2025 (Patrick build)
+// One-file, working sim with global state, Cesium model, Cohere ATC, weather, HUD, cameras, joystick, throttle, autopilot, IFE, debug.
 
 // ==============================
 // 0) Configuration
@@ -14,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
 const CONFIG = {
   CESIUM_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NDIwYmNkOS03MTExLTRjZGEtYjI0Yy01ZmIzYzJmOGFjNGEiLCJpZCI6MzM5NTE3LCJpYXQiOjE3NTczNTg4Mzd9.3gkVP8epIlHiy3MtC2GnDgLhvD4XbhfIsWfzuyYjDZQ',
   MODEL: {
-    AIRCRAFT_ASSET_ID: 3713684,     // your Ion asset id
+    AIRCRAFT_ASSET_ID: 3713684,
     SCALE: 1.0,
     MIN_PIXEL_SIZE: 96,
     RUN_ANIMATIONS: false
@@ -54,12 +47,10 @@ const CONFIG = {
     CLOUDS_OVERCAST_THRESHOLD: 75,
     CLOUD_LAYER_ALT_M: 1800,
     CLOUD_RADIUS_M: 2000,
-    CLOUD_SPRITES_MAX: 40,
+    CLOUD_SPRITES_MAX: 36,
     PRECIP_MIN: 0.05,
     HEAVY_MM_H: 3.5,
-    SNOW_TEMP_C: 0.0,
-    ENABLE_WIND: false,
-    WIND_SCALE: 0.14
+    SNOW_TEMP_C: 0.0
   },
   DEBUG: { ENABLED: false, ELEMENT_ID: 'debugOverlay' },
   SAMPLING: { TERRAIN_STEPS: 8 },
@@ -70,18 +61,43 @@ const CONFIG = {
   ATC: {
     ENABLED: true,
     COHERE_ENDPOINT: 'https://api.cohere.ai/v1/chat',
-    COHERE_API_KEY: '' // <- paste your Cohere API key here
+    COHERE_API_KEY: '' // paste your Cohere API key here
   }
 };
 
 // ==============================
-// 1) Utilities
+// 1) Global state
+// ==============================
+const SimState = {
+  viewer: null, planeEntity: null,
+  heading: Cesium.Math.toRadians(CONFIG.SPAWN.HEADING_DEG),
+  pitch: 0, roll: 0,
+  speed: 0, verticalSpeed: 0, thrustInput: 0, onGround: true,
+  lon: Cesium.Math.toRadians(CONFIG.SPAWN.LON_DEG),
+  lat: Cesium.Math.toRadians(CONFIG.SPAWN.LAT_DEG),
+  height: 0,
+  lastTime: undefined,
+  viewMode: 'orbit', camPosSmooth: null,
+  keys: {}, sampleCounter: 0, sampling: false,
+  autopilot: { enabled: false, targetAltM: null },
+  paxWindow: null
+};
+
+const WeatherState = {
+  lastUpdate: 0, data: null,
+  cloudiness: 0, precipRate: 0, tempC: 20, windDirDeg: 0, windSpeed: 0, condition: 'Clear',
+  cloudBillboards: null, rainSystem: null, snowSystem: null
+};
+
+const DebugState = { enabled: CONFIG.DEBUG.ENABLED };
+
+// ==============================
+// 2) Utilities
 // ==============================
 const deg2rad = (d) => Cesium.Math.toRadians(d);
 const rad2deg = (r) => Cesium.Math.toDegrees(r);
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const nmFromMeters = (m) => m / 1852;
 const ms2kts = (ms) => ms * 1.94384;
 const m2ft = (m) => m * 3.28084;
 
@@ -90,7 +106,6 @@ function hprQuaternion(position, heading, pitch, roll) {
     position, new Cesium.HeadingPitchRoll(heading, pitch, roll)
   );
 }
-
 function normalize3(out, v) {
   const m = Math.hypot(v.x, v.y, v.z);
   if (m > 1e-9) { out.x = v.x/m; out.y = v.y/m; out.z = v.z/m; }
@@ -99,7 +114,7 @@ function normalize3(out, v) {
 }
 
 // ==============================
-// 2) DOM handles
+// 3) DOM handles
 // ==============================
 const loginDiv = document.getElementById('login');
 const loginForm = document.getElementById('loginForm');
@@ -116,7 +131,6 @@ const debugOverlay = document.getElementById('debugOverlay');
 const passengerBtn = document.getElementById('passengerBtn');
 const passengerPanel = document.getElementById('passengerPanel');
 const createIFEBtn = document.getElementById('createIFE');
-const ifeTabs = document.getElementById('ifeTabs');
 const closePassenger = document.getElementById('closePassenger');
 
 const autopilotBtn = document.getElementById('autopilotBtn');
@@ -132,32 +146,7 @@ const atcOutput = document.getElementById('atcOutput');
 const atcInput = document.getElementById('atcInput');
 const atcSend = document.getElementById('atcSend');
 
-// Explicit credit container (optional)
 const creditContainer = document.getElementById(CONFIG.VIEWER.CREDIT_CONTAINER_ID);
-
-// ==============================
-// 3) Global state
-// ==============================
-const SimState = {
-  viewer: null, planeEntity: null,
-  heading: deg2rad(CONFIG.SPAWN.HEADING_DEG), pitch: 0, roll: 0,
-  speed: 0, verticalSpeed: 0, thrustInput: 0, onGround: true,
-  lon: deg2rad(CONFIG.SPAWN.LON_DEG), lat: deg2rad(CONFIG.SPAWN.LAT_DEG), height: 0,
-  lastTime: undefined,
-  viewMode: 'orbit', canToggleView: true, camPosSmooth: null,
-  keys: {}, sampleCounter: 0, sampling: false,
-  autopilot: { enabled: false, targetAltM: null },
-  paxWindow: null,
-  routePositions: []
-};
-
-const WeatherState = {
-  lastUpdate: 0, data: null,
-  cloudiness: 0, precipRate: 0, tempC: 20, windDirDeg: 0, windSpeed: 0, condition: 'Clear',
-  cloudBillboards: null, rainSystem: null, snowSystem: null
-};
-
-const DebugState = { enabled: CONFIG.DEBUG.ENABLED };
 
 // ==============================
 // 4) Login
@@ -166,12 +155,12 @@ loginForm?.addEventListener('submit', (e) => {
   e.preventDefault();
   const val = (passwordInput?.value || '').trim();
   if (val === 'A330') {
-    loginDiv && (loginDiv.style.display = 'none');
-    loadingOverlay?.classList.remove('hidden');
+    loginDiv.style.display = 'none';
+    loadingOverlay.classList.remove('hidden');
     initSim().catch((err) => {
-      console.error('Init failed:', err);
+      console.error(err);
       alert('Initialization failed. Check console.');
-      loadingOverlay?.classList.add('hidden');
+      loadingOverlay.classList.add('hidden');
     });
   } else {
     alert('Incorrect password');
@@ -196,18 +185,20 @@ async function initSim() {
   });
   SimState.viewer = viewer;
 
-  // Restore credit bar visibility
-  if (viewer._creditDisplay && viewer._creditDisplay.container) {
-    viewer._creditDisplay.container.style.display = 'block';
-  }
-
-  // Lighting polish
+  // Visual polish
   viewer.scene.globe.enableLighting = true;
-  viewer.scene.shadowMap.enabled = true;
-  viewer.scene.shadowMap.darkness = 0.6;
+  viewer.scene.globe.dynamicAtmosphereLighting = true;
+  viewer.scene.skyAtmosphere.hueShift = -0.015;
+  viewer.scene.skyAtmosphere.saturationShift = -0.18;
+  viewer.scene.skyAtmosphere.brightnessShift = -0.06;
+  viewer.scene.fog.enabled = true;
+  viewer.scene.fog.density = 0.0018;
+  viewer.scene.screenSpaceCameraController.inertiaTranslate = 0.9;
+  viewer.scene.screenSpaceCameraController.inertiaZoom = 0.9;
+  viewer.scene.screenSpaceCameraController.inertiaSpin = 0.9;
+
   if (CONFIG.VIEWER.DEPTH_TEST_TERRAIN) viewer.scene.globe.depthTestAgainstTerrain = true;
 
-  // OSM buildings, outlines disabled to silence draping warning
   if (CONFIG.VIEWER.OSM_BUILDINGS) {
     try {
       const osm = await Cesium.createOsmBuildingsAsync();
@@ -216,7 +207,7 @@ async function initSim() {
     } catch (e) { console.warn('OSM buildings failed:', e); }
   }
 
-  // Terrain sample for ground placement
+  // Terrain sample spawn height
   const startCarto = new Cesium.Cartographic(SimState.lon, SimState.lat);
   let terrainH = 0;
   try {
@@ -225,14 +216,12 @@ async function initSim() {
   } catch {}
   SimState.height = terrainH + CONFIG.PHYSICS.GEAR_HEIGHT;
 
-  // Load aircraft model from Ion asset
+  // Model
   const pos = Cesium.Cartesian3.fromRadians(SimState.lon, SimState.lat, SimState.height);
   let modelUri = null;
   try {
     modelUri = await Cesium.IonResource.fromAssetId(CONFIG.MODEL.AIRCRAFT_ASSET_ID);
-  } catch (e) {
-    console.warn('Ion model load failed, falling back to point:', e);
-  }
+  } catch (e) { console.warn('Ion model load failed, using point fallback:', e); }
 
   SimState.planeEntity = viewer.entities.add({
     position: pos,
@@ -246,7 +235,6 @@ async function initSim() {
     orientation: hprQuaternion(pos, SimState.heading, SimState.pitch, SimState.roll)
   });
 
-  // Camera
   try {
     await viewer.flyTo(SimState.planeEntity, {
       duration: 1.0,
@@ -256,13 +244,12 @@ async function initSim() {
   viewer.trackedEntity = SimState.planeEntity;
   viewLabel && (viewLabel.textContent = 'Orbit');
 
-  loadingOverlay?.classList.add('hidden');
+  loadingOverlay.classList.add('hidden');
   SimState.camPosSmooth = viewer.camera.positionWC.clone();
 
-  // Wire UI and systems
   wireInputs();
-  wirePassengerUI();
   wireCameraButtons();
+  wirePassengerUI();
   wireATC();
   setupJoystick();
   setupThrottle();
@@ -270,7 +257,6 @@ async function initSim() {
   if (CONFIG.WEATHER.ENABLED) await initWeather();
   if (DebugState.enabled) showDebugOverlay(true);
 
-  // Start main loop (added in Part 2)
   viewer.clock.onTick.addEventListener(onTick);
 }
 
@@ -297,8 +283,7 @@ function wireInputs() {
 function wireCameraButtons() {
   if (!cameraPanel) return;
   cameraPanel.addEventListener('click', (e) => {
-    const btn = e.target.closest('button');
-    if (!btn) return;
+    const btn = e.target.closest('button'); if (!btn) return;
     const mode = btn.dataset.cam;
     if (!['orbit','chase','first'].includes(mode)) return;
     SimState.viewMode = mode;
@@ -311,17 +296,12 @@ function wireCameraButtons() {
 // 7) Passenger UI + IFE
 // ==============================
 function wirePassengerUI() {
-  closePassenger?.addEventListener('click', () => {
-    passengerPanel?.classList.add('hidden');
-  });
+  closePassenger?.addEventListener('click', () => passengerPanel?.classList.add('hidden'));
   createIFEBtn?.addEventListener('click', openIFE);
 }
-
 function togglePassengerPanel() {
-  if (!passengerPanel) return;
-  passengerPanel.classList.toggle('hidden');
+  passengerPanel?.classList.toggle('hidden');
 }
-
 function openIFE() {
   if (!window || !window.open) { alert('Pop-ups blocked.'); return; }
   if (!SimState.paxWindow || SimState.paxWindow.closed) {
@@ -330,18 +310,15 @@ function openIFE() {
     SimState.paxWindow.focus();
   }
   if (!SimState.paxWindow || SimState.paxWindow.closed) {
-    alert('Pop-up blocked. Allow pop-ups for this site.');
-    return;
+    alert('Pop-up blocked. Allow pop-ups for this site.'); return;
   }
   writeIFE(SimState.paxWindow);
   startIFEUpdates(true);
 }
-
 function writeIFE(win) {
   const doc = win.document;
   doc.open();
-  doc.write(`
-<!DOCTYPE html><html><head>
+  doc.write(`<!DOCTYPE html><html><head>
 <meta charset="utf-8"><title>Passenger IFE</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="${CONFIG.PASSENGER.LEAFLET_CSS}">
@@ -387,7 +364,6 @@ window.addEventListener('message',(e)=>{
 </body></html>`);
   doc.close();
 }
-
 let ifeTimer=null;
 function startIFEUpdates(force=false){
   if(ifeTimer && !force) return;
@@ -395,7 +371,6 @@ function startIFEUpdates(force=false){
   if(ifeTimer) clearInterval(ifeTimer);
   ifeTimer=setInterval(sendIFEPos,1000);
 }
-
 function sendIFEPos(){
   if(!SimState.paxWindow || SimState.paxWindow.closed) return;
   const lat=rad2deg(SimState.lat), lon=rad2deg(SimState.lon);
@@ -413,14 +388,12 @@ function wireATC(){
   atcSend.addEventListener('click',sendATC);
   atcInput.addEventListener('keydown',(e)=>{if(e.key==='Enter') sendATC();});
 }
-
 async function sendATC(){
   const txt=atcInput.value.trim(); if(!txt) return;
   appendATC('Pilot',txt); atcInput.value='';
   const reply=await callCohereATC(buildATCPrompt(txt));
   appendATC('ATC',reply);
 }
-
 function appendATC(speaker,text){
   if(!atcOutput) return;
   const div=document.createElement('div');
@@ -428,7 +401,6 @@ function appendATC(speaker,text){
   atcOutput.appendChild(div);
   atcOutput.scrollTop=atcOutput.scrollHeight;
 }
-
 function buildATCPrompt(userText){
   const callsign='HW123';
   const pos=`${rad2deg(SimState.lat).toFixed(3)},${rad2deg(SimState.lon).toFixed(3)}`;
@@ -437,7 +409,6 @@ function buildATCPrompt(userText){
   const alt=Math.round(m2ft(SimState.height));
   return `You are ATC. Aircraft ${callsign}, pos ${pos}, hdg ${hdg}, spd ${kts}kts, alt ${alt}ft. Pilot: "${userText}". Respond with concise ATC phraseology.`;
 }
-
 async function callCohereATC(prompt){
   if(!CONFIG.ATC.ENABLED||!CONFIG.ATC.COHERE_API_KEY) return 'ATC offline (no key).';
   try{
@@ -474,8 +445,12 @@ function setupJoystick(){
     const px=Math.cos(ang)*dist, py=Math.sin(ang)*dist;
     stick.style.left=`${center.x+px-10}px`;
     stick.style.top=`${center.y+py-10}px`;
-    SimState.roll+= (px/radius)*0.02;
-    SimState.pitch+= (py/radius)*0.02;
+    // expo + smoothing
+    const nx = px/radius, ny = py/radius;
+    const expo = (i,f=0.35)=> i*(1-f)+Math.pow(i,3)*f;
+    const xCmd = expo(nx), yCmd = expo(ny);
+    SimState.roll += xCmd*0.02;
+    SimState.pitch += yCmd*0.02;
   }
   function end(){dragging=false;const r=joystick.getBoundingClientRect();
     stick.style.left=`${r.left+r.width/2-10}px`;
@@ -486,10 +461,24 @@ function setupJoystick(){
   window.addEventListener('pointerup',end);
   window.addEventListener('pointercancel',end);
 }
-
 function setupThrottle(){
   if(!throttleSlider) return;
-  throttleSlider.addEventListener('input',()=>{ SimState.thrustInput = clamp01(throttleSlider.value/100); });
+  // modern vertical style (avoid deprecated slider-vertical)
+  throttleSlider.style.writingMode='vertical-lr';
+  throttleSlider.style.direction='rtl';
+  throttleSlider.addEventListener('input',()=>{
+    // Airbus detents (approx): REV/IDLE/CL/FLX/TOGA mapping
+    const v = Number(throttleSlider.value);
+    let thrust=0, label='IDLE';
+    if (v<5) { thrust=0; label='REV'; }
+    else if (v<15) { thrust=0.1; label='IDLE'; }
+    else if (v<50) { thrust=0.55; label='CL'; }
+    else if (v<75) { thrust=0.8; label='FLX/MCT'; }
+    else { thrust=1.0; label='TOGA'; }
+    SimState.thrustInput = thrust;
+    // optional: show in HUD title
+    if (viewLabel) viewLabel.title = `Throttle: ${label}`;
+  });
 }
 
 // ==============================
@@ -501,7 +490,6 @@ async function initWeather() {
   createOrUpdateClouds({ cloudiness: 0, altitudeAGL: CONFIG.WEATHER.CLOUD_LAYER_ALT_M, radius: CONFIG.WEATHER.CLOUD_RADIUS_M });
   await updateWeather(true);
 }
-
 async function fetchOpenMeteo(latDeg, lonDeg) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${latDeg}&longitude=${lonDeg}&current=temperature_2m,precipitation,cloudcover,wind_direction_10m,wind_speed_10m&timezone=auto`;
   try {
@@ -523,7 +511,6 @@ async function fetchOpenMeteo(latDeg, lonDeg) {
     return null;
   }
 }
-
 async function updateWeather(initial = false) {
   if (!CONFIG.WEATHER.ENABLED) return;
   const now = performance.now() / 1000;
@@ -542,16 +529,15 @@ async function updateWeather(initial = false) {
 
   applyWeatherVisuals();
 }
-
 function applyWeatherVisuals() {
   const v = SimState.viewer;
   const c = WeatherState.cloudiness, p = WeatherState.precipRate, t = WeatherState.tempC;
 
   const atm = v.scene.skyAtmosphere;
   const overcast = c >= CONFIG.WEATHER.CLOUDS_OVERCAST_THRESHOLD;
-  atm.hueShift = overcast ? -0.02 : 0.0;
-  atm.saturationShift = overcast ? -0.25 : -0.05;
-  atm.brightnessShift = overcast ? -0.12 : 0.0;
+  atm.hueShift = overcast ? -0.02 : -0.01;
+  atm.saturationShift = overcast ? -0.25 : -0.1;
+  atm.brightnessShift = overcast ? -0.12 : -0.04;
 
   createOrUpdateClouds({ cloudiness: c, altitudeAGL: CONFIG.WEATHER.CLOUD_LAYER_ALT_M, radius: CONFIG.WEATHER.CLOUD_RADIUS_M });
 
@@ -564,7 +550,6 @@ function applyWeatherVisuals() {
 
   v.scene.requestRender();
 }
-
 function createOrUpdateClouds({ cloudiness, altitudeAGL, radius }) {
   const v = SimState.viewer;
   if (!WeatherState.cloudBillboards) {
@@ -580,7 +565,7 @@ function createOrUpdateClouds({ cloudiness, altitudeAGL, radius }) {
   if (target > 0) {
     const center = Cesium.Cartesian3.fromRadians(SimState.lon, SimState.lat, SimState.height + altitudeAGL);
     const enu = Cesium.Transforms.eastNorthUpToFixedFrame(center);
-    const size = 240 + (cloudiness / 100) * 260;
+    const size = 260 + (cloudiness / 100) * 240;
     for (let i = 0; i < bbs.length; i++) {
       const ang = i / bbs.length * Math.PI * 2;
       const r = radius * (0.85 + Math.random() * 0.35);
@@ -591,7 +576,6 @@ function createOrUpdateClouds({ cloudiness, altitudeAGL, radius }) {
     }
   }
 }
-
 function cloudSprite() {
   const w = 256, h = 128, c = document.createElement('canvas'); c.width = w; c.height = h;
   const ctx = c.getContext('2d');
@@ -603,7 +587,6 @@ function cloudSprite() {
   blob(70,72,74,42,0.95); blob(120,60,64,38,0.9); blob(162,78,66,34,0.86); blob(112,86,108,38,0.8);
   return c.toDataURL('image/png');
 }
-
 function ensureRain(on) {
   const v = SimState.viewer;
   if (on && !WeatherState.rainSystem) {
@@ -617,7 +600,6 @@ function ensureRain(on) {
     v.scene.primitives.remove(WeatherState.rainSystem); WeatherState.rainSystem = null;
   }
 }
-
 function ensureSnow(on) {
   const v = SimState.viewer;
   if (on && !WeatherState.snowSystem) {
@@ -631,19 +613,16 @@ function ensureSnow(on) {
     v.scene.primitives.remove(WeatherState.snowSystem); WeatherState.snowSystem = null;
   }
 }
-
 function tuneRain(mm) {
   const ps = WeatherState.rainSystem; if (!ps) return;
   const t = clamp01(mm / CONFIG.WEATHER.HEAVY_MM_H);
   ps.emissionRate = 1800 + 6800 * t; ps.minimumSpeed = 35 + 25 * t; ps.maximumSpeed = 70 + 55 * t;
 }
-
 function tuneSnow(mm) {
   const ps = WeatherState.snowSystem; if (!ps) return;
   const t = clamp01(mm / CONFIG.WEATHER.HEAVY_MM_H);
   ps.emissionRate = 900 + 2600 * t; ps.minimumSpeed = 0.4 + 0.9 * t; ps.maximumSpeed = 1.6 + 1.8 * t;
 }
-
 function rainSprite() {
   const w=8,h=36,c=document.createElement('canvas'); c.width=w; c.height=h; const x=c.getContext('2d');
   const g=x.createLinearGradient(w/2,0,w/2,h); g.addColorStop(0,'rgba(255,255,255,0.95)'); g.addColorStop(1,'rgba(255,255,255,0)');
@@ -653,7 +632,6 @@ function snowSprite() {
   const s=24,c=document.createElement('canvas'); c.width=s; c.height=s; const x=c.getContext('2d'); x.strokeStyle='rgba(255,255,255,0.95)'; x.lineWidth=2; x.translate(s/2,s/2);
   for(let i=0;i<6;i++){ x.rotate(Math.PI/3); x.beginPath(); x.moveTo(0,0); x.lineTo(0,s/2-2); x.stroke(); } return c.toDataURL('image/png');
 }
-
 function updatePrecipMM() {
   const cam = SimState.viewer.camera;
   const m = Cesium.Matrix4.clone(cam.viewMatrix, new Cesium.Matrix4());
@@ -663,60 +641,55 @@ function updatePrecipMM() {
 }
 
 // ==============================
-// Part 2 continues with:
-// - Main simulation loop (physics, motion, terrain sampling)
-// - Commit pose & camera control
-// - HUD updates
-// - Autopilot, reset
-// - Debug overlay
-// ==============================
-
-});
-// ==============================
 // 11) Main loop
 // ==============================
 function onTick(clock) {
   const now = clock.currentTime;
-  const dtRaw = SimState.lastTime ? Cesium.JulianDate.secondsDifference(now, SimState.lastTime) : 1 / 60;
+  const dtRaw = SimState.lastTime ? Cesium.JulianDate.secondsDifference(now, SimState.lastTime) : 1/60;
   const dt = clamp(dtRaw, 0.001, 0.1);
   SimState.lastTime = now;
 
-  if (CONFIG.WEATHER.ENABLED) {
-    updateWeather();
-    updatePrecipMM();
-  }
+  if (CONFIG.WEATHER.ENABLED) { updateWeather(); updatePrecipMM(); }
 
+  // Thrust controls via keyboard (optional, slider is primary)
   if (SimState.keys['shiftleft']) SimState.thrustInput = Math.min(1, SimState.thrustInput + CONFIG.PHYSICS.THRUST_RAMP * dt);
   if (SimState.keys['controlleft']) SimState.thrustInput = Math.max(0, SimState.thrustInput - CONFIG.PHYSICS.THRUST_DECAY * dt);
 
+  // Yaw
   if (SimState.keys['q']) SimState.heading -= CONFIG.PHYSICS.MAX_YAW_RATE * dt;
   if (SimState.keys['e']) SimState.heading += CONFIG.PHYSICS.MAX_YAW_RATE * dt;
 
+  // Pitch/Roll
   if (SimState.keys['a']) SimState.roll -= CONFIG.PHYSICS.MAX_BANK_RATE * dt;
   if (SimState.keys['d']) SimState.roll += CONFIG.PHYSICS.MAX_BANK_RATE * dt;
   if (SimState.keys['w']) SimState.pitch -= CONFIG.PHYSICS.MAX_PITCH_RATE * dt;
   if (SimState.keys['s']) SimState.pitch += CONFIG.PHYSICS.MAX_PITCH_RATE * dt;
 
+  // Autopilot
   if (SimState.autopilot.enabled) {
     if (SimState.autopilot.targetAltM == null) SimState.autopilot.targetAltM = SimState.height;
     const err = SimState.autopilot.targetAltM - SimState.height;
     SimState.verticalSpeed += clamp(err * 0.02, -3, 3) * dt;
   }
 
+  // Speed integration
   let accel = SimState.thrustInput * CONFIG.PHYSICS.MAX_THRUST_ACCEL - CONFIG.PHYSICS.DRAG_COEFF * SimState.speed;
   if (SimState.thrustInput > 0.02 && SimState.speed < CONFIG.PHYSICS.GROUND_STICTION_THRESH && SimState.onGround) {
     accel += CONFIG.PHYSICS.GROUND_STICTION_PUSH;
   }
   SimState.speed = Math.max(0, SimState.speed + accel * dt);
 
+  // Lift / gravity
   const lift = CONFIG.PHYSICS.LIFT_COEFF * SimState.speed * Math.sin(-SimState.pitch);
   SimState.verticalSpeed += (lift - CONFIG.PHYSICS.G) * dt;
   if (SimState.onGround) SimState.verticalSpeed = Math.max(0, SimState.verticalSpeed);
 
+  // Forward vector in ENU
   const cp = Math.cos(SimState.pitch), ch = Math.cos(SimState.heading), sh = Math.sin(SimState.heading), sp = Math.sin(SimState.pitch);
   const forwardENU = new Cesium.Cartesian3(cp * ch, cp * sh, SimState.onGround ? 0.0 : sp);
   normalize3(forwardENU, forwardENU);
 
+  // Move in ECEF
   const currentECEF = Cesium.Cartesian3.fromRadians(SimState.lon, SimState.lat, SimState.height);
   const enu = Cesium.Transforms.eastNorthUpToFixedFrame(currentECEF);
   const enuRot = Cesium.Matrix4.getMatrix3(enu, new Cesium.Matrix3());
@@ -724,10 +697,10 @@ function onTick(clock) {
   const disp = Cesium.Cartesian3.multiplyByScalar(fECEF, SimState.speed * dt, new Cesium.Cartesian3());
   const newECEF = Cesium.Cartesian3.add(currentECEF, disp, new Cesium.Cartesian3());
   const newCarto = Cesium.Cartographic.fromCartesian(newECEF);
-  SimState.lon = newCarto.longitude;
-  SimState.lat = newCarto.latitude;
+  SimState.lon = newCarto.longitude; SimState.lat = newCarto.latitude;
   let newHeight = (newCarto.height || 0) + SimState.verticalSpeed * dt;
 
+  // Terrain clamp (throttled)
   SimState.sampleCounter = (SimState.sampleCounter + 1) % CONFIG.SAMPLING.TERRAIN_STEPS;
   if (SimState.sampleCounter === 0 && !SimState.sampling) {
     SimState.sampling = true;
@@ -735,23 +708,13 @@ function onTick(clock) {
       .then((s) => {
         const th = s?.[0]?.height ?? 0;
         const groundH = th + CONFIG.PHYSICS.GEAR_HEIGHT;
-        if (newHeight <= groundH) {
-          newHeight = groundH;
-          SimState.verticalSpeed = 0;
-          SimState.onGround = true;
-        } else {
-          SimState.onGround = false;
-        }
+        if (newHeight <= groundH) { newHeight = groundH; SimState.verticalSpeed = 0; SimState.onGround = true; }
+        else SimState.onGround = false;
         groundLabel && (groundLabel.textContent = SimState.onGround ? 'Yes' : 'No');
         commitPose(newHeight);
       })
-      .catch(() => {
-        SimState.onGround = false;
-        commitPose(newHeight);
-      })
-      .finally(() => {
-        SimState.sampling = false;
-      });
+      .catch(() => { SimState.onGround = false; commitPose(newHeight); })
+      .finally(() => { SimState.sampling = false; });
   } else {
     commitPose(newHeight);
   }
@@ -769,13 +732,11 @@ function commitPose(h) {
   SimState.planeEntity.orientation = quat;
 
   if (SimState.viewMode !== 'orbit') {
-    const AXIS_X = new Cesium.Cartesian3(1, 0, 0);
-    const AXIS_Z = new Cesium.Cartesian3(0, 0, 1);
+    const AXIS_X = new Cesium.Cartesian3(1,0,0), AXIS_Z = new Cesium.Cartesian3(0,0,1);
     const m3 = Cesium.Matrix3.fromQuaternion(quat, new Cesium.Matrix3());
     const fwd = Cesium.Matrix3.multiplyByVector(m3, AXIS_X, new Cesium.Cartesian3());
     const up = Cesium.Matrix3.multiplyByVector(m3, AXIS_Z, new Cesium.Cartesian3());
     const camPos = new Cesium.Cartesian3();
-
     if (SimState.viewMode === 'chase') {
       camPos.x = pos.x - fwd.x * CONFIG.CAMERA.CHASE_BACK + up.x * CONFIG.CAMERA.CHASE_UP;
       camPos.y = pos.y - fwd.y * CONFIG.CAMERA.CHASE_BACK + up.y * CONFIG.CAMERA.CHASE_UP;
@@ -785,12 +746,10 @@ function commitPose(h) {
       camPos.y = pos.y + fwd.y * CONFIG.CAMERA.FP_AHEAD + up.y * CONFIG.CAMERA.FP_UP;
       camPos.z = pos.z + fwd.z * CONFIG.CAMERA.FP_AHEAD + up.z * CONFIG.CAMERA.FP_UP;
     }
-
     if (!SimState.camPosSmooth) SimState.camPosSmooth = camPos.clone();
     SimState.camPosSmooth.x += (camPos.x - SimState.camPosSmooth.x) * CONFIG.CAMERA.SMOOTH_FACTOR;
     SimState.camPosSmooth.y += (camPos.y - SimState.camPosSmooth.y) * CONFIG.CAMERA.SMOOTH_FACTOR;
     SimState.camPosSmooth.z += (camPos.z - SimState.camPosSmooth.z) * CONFIG.CAMERA.SMOOTH_FACTOR;
-
     const dir = Cesium.Cartesian3.subtract(pos, SimState.camPosSmooth, new Cesium.Cartesian3());
     Cesium.Cartesian3.normalize(dir, dir);
     SimState.viewer.camera.setView({ destination: SimState.camPosSmooth, orientation: { direction: dir, up: up } });
@@ -798,7 +757,7 @@ function commitPose(h) {
 
   speedEl && (speedEl.textContent = `${Math.round(ms2kts(SimState.speed))}`);
   altEl && (altEl.textContent = `${Math.round(m2ft(SimState.height))}`);
-  hdgEl && (hdgEl.textContent = `${Math.round((rad2deg(SimState.heading) + 360) % 360)}`);
+  hdgEl && (hdgEl.textContent = `${Math.round((rad2deg(SimState.heading)+360)%360)}`);
 
   SimState.viewer.scene.requestRender();
 }
@@ -815,17 +774,12 @@ function toggleAutopilot() {
     alert('Autopilot disabled.');
   }
 }
-
 function resetToRunway() {
   SimState.heading = deg2rad(CONFIG.SPAWN.HEADING_DEG);
-  SimState.pitch = 0;
-  SimState.roll = 0;
-  SimState.speed = 0;
-  SimState.verticalSpeed = 0;
-  SimState.thrustInput = 0;
-  SimState.onGround = true;
-  SimState.lon = deg2rad(CONFIG.SPAWN.LON_DEG);
-  SimState.lat = deg2rad(CONFIG.SPAWN.LAT_DEG);
+  SimState.pitch = 0; SimState.roll = 0;
+  SimState.speed = 0; SimState.verticalSpeed = 0;
+  SimState.thrustInput = 0; SimState.onGround = true;
+  SimState.lon = deg2rad(CONFIG.SPAWN.LON_DEG); SimState.lat = deg2rad(CONFIG.SPAWN.LAT_DEG);
 
   Cesium.sampleTerrainMostDetailed(SimState.viewer.terrainProvider, [new Cesium.Cartographic(SimState.lon, SimState.lat)])
     .then((s) => {
@@ -835,12 +789,8 @@ function resetToRunway() {
       SimState.viewer.trackedEntity = SimState.viewMode === 'orbit' ? SimState.planeEntity : undefined;
       viewLabel && (viewLabel.textContent = SimState.viewMode.charAt(0).toUpperCase() + SimState.viewMode.slice(1));
     })
-    .catch(() => {
-      SimState.height = CONFIG.PHYSICS.GEAR_HEIGHT;
-      commitPose(SimState.height);
-    })
+    .catch(() => { SimState.height = CONFIG.PHYSICS.GEAR_HEIGHT; commitPose(SimState.height); });
 }
-
 function showDebugOverlay(on) {
   DebugState.enabled = !!on;
   if (!debugOverlay) return;
@@ -851,7 +801,6 @@ function showDebugOverlay(on) {
     debugOverlay.classList.add('hidden');
   }
 }
-
 function updateDebugLoop() {
   if (!DebugState.enabled || !debugOverlay) return;
   const lines = [
@@ -865,9 +814,8 @@ function updateDebugLoop() {
   ];
   debugOverlay.textContent = lines.join('\n');
   requestAnimationFrame(updateDebugLoop);
-
+}
 
 // ==============================
 // End of script
 // ==============================
-}); //end of the DOMcontent rein

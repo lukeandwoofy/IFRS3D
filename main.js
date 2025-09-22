@@ -1,4 +1,9 @@
-// main.js — WebFS2025 bootstrap
+// main.js — WebFS2025 bootstrap (complete, robust version)
+// - Safe keyboard handling
+// - Robust Cesium viewer + terrain initialization with fallbacks
+// - Module attach/init lifecycle with guarded main loop
+// - Spawn terrain sampling guarded to avoid runtime errors
+
 import * as physics from './physics.js';
 import * as controls from './controls.js';
 import * as camera from './camera.js';
@@ -10,8 +15,11 @@ import * as passenger from './passenger.js';
 import * as persistence from './persistence.js';
 import * as multiplayer from './multiplayer.js';
 
+// --------------------
+// Config and utilities
+// --------------------
 export const CONFIG = {
-  CESIUM_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NDIwYmNkOS03MTExLTRjZGEtYjI0Yy01ZmIzYzJmOGFjNGEiLCJpZCI6MzM5NTE3LCJpYXQiOjE3NTczNTg4Mzd9.3gkVP8epIlHiy3MtC2GnDgLhvD4XbhfIsWfzuyYjDZQ', // ← insert your Cesium Ion token here
+  CESIUM_TOKEN: '', // set at build/injection time; do not commit secrets
   VIEWER: {
     BASE_LAYER_PICKER: false,
     REQUEST_RENDER_MODE: true,
@@ -51,11 +59,11 @@ export const CONFIG = {
     SMOOTH_FACTOR: 0.08
   },
   MULTIPLAYER: {
-    SERVER_URL: '', // ← set if using multiplayer
+    SERVER_URL: '', // set if using multiplayer server
     callsign: 'WEBFS'
   },
   ATC: {
-    COHERE_API_KEY: '' // ← optional
+    COHERE_API_KEY: '' // optional; leave empty to use fallback
   },
   PASSENGER: {
     LEAFLET_JS: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
@@ -76,13 +84,16 @@ export const U = {
   }
 };
 
+// --------------------
+// App state
+// --------------------
 export const App = {
-  lonRad: 0,
-  latRad: 0,
-  heightM: 1000,
-  heading: 0,
-  pitch: 0,
-  roll: 0,
+  lonRad: 0,     // radians
+  latRad: 0,     // radians
+  heightM: 1000, // meters
+  heading: 0,    // radians
+  pitch: 0,      // radians
+  roll: 0,       // radians
   speedMS: 0,
   vSpeedMS: 0,
   thrustInput: 0,
@@ -92,9 +103,13 @@ export const App = {
   viewer: null,
   planeEntity: null,
   camPosSmooth: null,
-  autopilot: null
+  autopilot: null,
+  _localId: null
 };
 
+// --------------------
+// Modules registry
+// --------------------
 const Modules = {
   physics,
   controls,
@@ -108,10 +123,14 @@ const Modules = {
   multiplayer
 };
 
+// --------------------
+// Module attach & init
+// --------------------
 function attachAll() {
-  for (const name in Modules) {
+  for (const name of Object.keys(Modules)) {
+    const mod = Modules[name];
     try {
-      Modules[name].attach?.(App, CONFIG, U, Modules);
+      if (typeof mod.attach === 'function') mod.attach(App, CONFIG, U, Modules);
       console.log(`[WebFS2025] Loaded module: ${name}`);
     } catch (e) {
       console.warn(`[WebFS2025] Failed to attach ${name}:`, e);
@@ -120,36 +139,62 @@ function attachAll() {
 }
 
 async function initAll() {
-  for (const name in Modules) {
+  for (const name of Object.keys(Modules)) {
+    const mod = Modules[name];
     try {
-      await Modules[name].init?.();
+      if (typeof mod.init === 'function') await mod.init();
     } catch (e) {
-      console.warn(`[WebFS2025] Init failed: ${name}`, e);
+      console.warn(`[WebFS2025] Module ${name} init failed:`, e);
     }
   }
 }
 
-function initKeyboard() {
+// --------------------
+// Keyboard guards
+// --------------------
+function initKeyboardGuards() {
   window.addEventListener('keydown', (e) => {
-    const k = (e.key || '').toLowerCase();
+    const k = (e && e.key) ? String(e.key).toLowerCase() : '';
+    const c = e && e.code ? String(e.code) : '';
     if (k) App.keys[k] = true;
-    if (e.code) App.keys[e.code] = true;
+    if (c) App.keys[c] = true;
   });
   window.addEventListener('keyup', (e) => {
-    const k = (e.key || '').toLowerCase();
+    const k = (e && e.key) ? String(e.key).toLowerCase() : '';
+    const c = e && e.code ? String(e.code) : '';
     if (k) App.keys[k] = false;
-    if (e.code) App.keys[e.code] = false;
+    if (c) App.keys[c] = false;
   });
 }
 
+// --------------------
+// Viewer & terrain creation (robust)
+// --------------------
 async function createViewer() {
-  if (CONFIG.CESIUM_TOKEN) Cesium.Ion.defaultAccessToken = CONFIG.CESIUM_TOKEN;
+  // Set Cesium token if provided
+  if (CONFIG.CESIUM_TOKEN) {
+    try { Cesium.Ion.defaultAccessToken = CONFIG.CESIUM_TOKEN; } catch (e) {}
+  }
 
-  let terrainProvider;
+  // Try to create world terrain; fallback to ellipsoid terrain if unavailable or fails
+  let terrainProvider = undefined;
   try {
-    terrainProvider = await Cesium.createWorldTerrainAsync?.();
-  } catch {
-    terrainProvider = new Cesium.EllipsoidTerrainProvider();
+    if (typeof Cesium.createWorldTerrainAsync === 'function') {
+      terrainProvider = await Cesium.createWorldTerrainAsync();
+    } else if (typeof Cesium.createWorldTerrain === 'function') {
+      terrainProvider = Cesium.createWorldTerrain();
+    }
+  } catch (e) {
+    console.warn('[main] createWorldTerrain failed, falling back to EllipsoidTerrainProvider', e);
+    terrainProvider = undefined;
+  }
+
+  if (!terrainProvider && Cesium.EllipsoidTerrainProvider) {
+    try {
+      terrainProvider = new Cesium.EllipsoidTerrainProvider();
+    } catch (e) {
+      terrainProvider = undefined;
+    }
   }
 
   const viewer = new Cesium.Viewer('cesiumContainer', {
@@ -165,86 +210,94 @@ async function createViewer() {
     infoBox: false,
     requestRenderMode: CONFIG.VIEWER.REQUEST_RENDER_MODE,
     maximumRenderTimeChange: CONFIG.VIEWER.MAXIMUM_RENDER_TIME_CHANGE,
-    creditContainer: document.getElementById(CONFIG.VIEWER.CREDIT_CONTAINER_ID)
+    creditContainer: document.getElementById(CONFIG.VIEWER.CREDIT_CONTAINER_ID) || undefined
   });
 
   App.viewer = viewer;
   return viewer;
 }
 
-// --- boot, loop, and lifecycle (second half of main.js) ---
-
+// --------------------
+// Boot sequence
+// --------------------
 export async function boot() {
   try {
-    initKeyboard();
+    initKeyboardGuards();
 
     const viewer = await createViewer();
 
-    // initial position cartesian (use radians inputs stored in App)
-    const startPos = Cesium.Cartesian3.fromRadians(App.lonRad, App.latRad, App.heightM || 1000);
+    // initial position Cartesian (from radians stored in App)
+    const startPos = Cesium.Cartesian3.fromRadians(App.lonRad, App.latRad, App.heightM);
+    // If you have a valid glTF URL or Cesium Ion asset, set model.uri to that.
+    // Leave empty to skip model loading (avoids glTF errors).
     App.planeEntity = viewer.entities.add({
       id: 'player-plane',
       position: startPos,
       model: {
-        uri: '', // optional: set to a mesh or Ion asset if available
+        uri: '', // set to a valid .glb URL or IonResource.fromAssetId(...) if available
         scale: 1.0,
         minimumPixelSize: 48
       }
     });
 
-    // initialize smooth camera storage
-    App.camPosSmooth = viewer.camera.position.clone?.() || new Cesium.Cartesian3();
+    // camera smoothing storage
+    App.camPosSmooth = viewer.camera.position.clone ? viewer.camera.position.clone() : viewer.camera.position;
 
-    // attach modules now that viewer exists
+    // Attach and init modules
     attachAll();
-
-    // init modules (some may be async)
     await initAll();
 
-    // try a single terrain sample to place aircraft on ground if terrain exists
+    // Attempt a single terrain sample at spawn (guarded)
     try {
       if (typeof Cesium.sampleTerrainMostDetailed === 'function' && viewer && viewer.terrainProvider) {
         const carto = new Cesium.Cartographic(App.lonRad, App.latRad);
-        const samples = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [carto]);
-        const height = samples?.[0]?.height;
-        if (typeof height === 'number') {
-          const minH = height + (CONFIG.PHYSICS.GEAR_HEIGHT || 1.2);
-          if (App.heightM < minH) {
-            App.heightM = minH;
-            App.onGround = true;
+        try {
+          const samples = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [carto]);
+          const h = samples?.[0]?.height;
+          if (typeof h === 'number') {
+            const minH = h + (CONFIG.PHYSICS.GEAR_HEIGHT || 1.2);
+            if (App.heightM < minH) {
+              App.heightM = minH;
+              App.onGround = true;
+            }
           }
+        } catch (e) {
+          console.warn('Terrain sample failed at spawn:', e);
         }
       }
     } catch (e) {
-      console.warn('[WebFS2025] Terrain sample at spawn failed:', e);
+      console.warn('Spawn terrain check skipped:', e);
     }
 
     // Start main loop
     lastTime = performance.now();
     requestAnimationFrame(loop);
+
   } catch (err) {
     console.error('[WebFS2025] Boot failed:', err);
   }
 }
 
+// --------------------
+// Main loop and helpers
+// --------------------
 let lastTime = 0;
 
-// safeCall helper to isolate module errors
 function safeCall(mod, fnName, ...args) {
   try {
     if (!mod) return;
     const fn = mod[fnName];
     if (typeof fn === 'function') return fn(...args);
   } catch (e) {
-    console.warn(`[WebFS2025] Module ${mod?.name || fnName} ${fnName} error:`, e);
+    console.warn(`[WebFS2025] Module ${mod && mod.name ? mod.name : fnName} ${fnName} failed:`, e);
   }
 }
 
 function loop(now) {
-  const dt = Math.min(0.1, ((now || performance.now()) - lastTime) / 1000 || 0.016);
-  lastTime = now || performance.now();
+  const dt = Math.min(0.1, (now - lastTime) / 1000 || 0.016);
+  lastTime = now;
 
-  // update pipeline (order matters)
+  // update pipeline
   safeCall(controls, 'update', App, dt);
   safeCall(physics, 'update', App, dt);
   safeCall(camera, 'lateUpdate', dt);
@@ -259,23 +312,25 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
+// --------------------
+// Shutdown
+// --------------------
 export async function shutdown() {
   try {
-    for (const name in Modules) {
-      try {
-        await Modules[name].dispose?.();
-      } catch (e) {
-        console.warn(`[WebFS2025] Dispose failed for ${name}:`, e);
+    for (const name of Object.keys(Modules)) {
+      const mod = Modules[name];
+      if (mod && typeof mod.dispose === 'function') {
+        try { await mod.dispose(); } catch (e) { /* ignore */ }
       }
     }
     if (App.viewer && typeof App.viewer.destroy === 'function') {
-      try { App.viewer.destroy(); } catch (e) { /* ignore */ }
+      try { App.viewer.destroy(); } catch (e) {}
     }
     App.viewer = null;
   } catch (e) {
-    console.warn('[WebFS2025] Shutdown error:', e);
+    console.warn('Shutdown error', e);
   }
 }
 
-// auto-start on import
-boot().catch((e) => console.error('[WebFS2025] Boot exception:', e));
+// Auto-start
+boot().catch((e) => console.error('Boot exception:', e));

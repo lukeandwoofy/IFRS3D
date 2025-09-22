@@ -19,7 +19,7 @@
 <body>
   <!-- Login overlay -->
   <div id="login">
-    <form id="loginForm">
+    <form id="loginForm" autocomplete="off" novalidate>
       <h1>WebFS2025</h1>
       <input id="password" type="password" placeholder="Enter password" />
       <button type="submit">Launch</button>
@@ -47,9 +47,9 @@
 
   <!-- Controls -->
   <div id="controls">
-    <button id="passengerBtn">Passenger Info</button>
-    <button id="autopilotBtn">Autopilot</button>
-    <button id="resetBtn">Reset</button>
+    <button id="passengerBtn" type="button">Passenger Info</button>
+    <button id="autopilotBtn" type="button">Autopilot</button>
+    <button id="resetBtn" type="button">Reset</button>
   </div>
 
   <!-- Joystick -->
@@ -63,27 +63,71 @@
 
   <!-- Camera panel -->
   <div id="cameraPanel">
-    <button data-cam="orbit">Orbit</button>
-    <button data-cam="chase">Chase</button>
-    <button data-cam="first">First-Person</button>
+    <button data-cam="orbit" type="button">Orbit</button>
+    <button data-cam="chase" type="button">Chase</button>
+    <button data-cam="first" type="button">First-Person</button>
   </div>
 
   <!-- ATC panel -->
   <div id="atcPanel">
     <div id="atcOutput"></div>
     <input id="atcInput" type="text" placeholder="Say to AI ATC..." />
-    <button id="atcSend">Send</button>
+    <button id="atcSend" type="button">Send</button>
   </div>
 
   <!-- Passenger panel -->
   <div id="passengerPanel" class="hidden">
-    <button id="createIFE">+ Create IFE Tab</button>
+    <button id="createIFE" type="button">+ Create IFE Tab</button>
     <ul id="ifeTabs"></ul>
-    <button id="closePassenger" title="Close">✖️</button>
+    <button id="closePassenger" title="Close" type="button">✖️</button>
   </div>
 
   <!-- Scripts (module bootstrap) -->
   <script type="module" src="main.js"></script>
+
+  <!-- Prevent login form from submitting (patch) and handle basic launch flow -->
+  <script>
+    (function () {
+      const form = document.getElementById('loginForm');
+      const loginOverlay = document.getElementById('login');
+      const passwordInput = document.getElementById('password');
+
+      function hideLogin() {
+        if (loginOverlay) loginOverlay.classList.add('hidden');
+      }
+
+      function showLoading() {
+        const ld = document.getElementById('loading');
+        if (ld) ld.classList.remove('hidden');
+      }
+
+      // Prevent default submit behavior and hide overlay instead
+      form && form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        // Simple optional password check (empty = allow)
+        const pw = (passwordInput && passwordInput.value) ? String(passwordInput.value) : '';
+        // You can validate pw here if desired
+        hideLogin();
+        // Optional UX: show loading until app boots
+        showLoading();
+        // Remove focus to avoid accidental re-submits
+        try { passwordInput.blur(); } catch (err) {}
+      });
+
+      // Also support pressing Enter anywhere inside login to hide without reload
+      passwordInput && passwordInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          form && form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        }
+      });
+
+      // Allow ESC to close login overlay (non-authenticated)
+      window.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') hideLogin();
+      });
+    })();
+  </script>
 
   <!-- Service worker registration -->
   <script>

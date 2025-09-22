@@ -158,10 +158,27 @@ html, body {
   height: 150px;
   writing-mode: vertical-lr;
   direction: rtl;
-  -webkit-appearance: slider-vertical;
   background: linear-gradient(#222, #111);
   border-radius: 6px;
   margin-bottom: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+/* Custom thumb for consistent vertical slider visuals */
+#throttleSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 28px;
+  height: 12px;
+  background: #0a84ff;
+  border-radius: 3px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.6);
+}
+#throttleSlider::-moz-range-thumb {
+  width: 28px;
+  height: 12px;
+  background: #0a84ff;
+  border: none;
+  border-radius: 3px;
 }
 #throttle .label {
   margin-top: 6px;
@@ -253,4 +270,22 @@ html, body {
   #joystick { width: 80px; height: 80px; bottom: 14px; left: 12px; }
   #stick { width: 18px; height: 18px; left: 31px; top: 31px; }
   #throttleSlider { height: 120px; }
+  #hud { font-size: 12px; flex-wrap: wrap; gap: 6px; }
+  #cameraPanel { top: 8px; right: 8px; }
+  #passengerPanel { width: 180px; left: 8px; top: 90px; }
+}
+
+/* Small tweaks for accessibility and focus states */
+button:focus, input:focus, select:focus, textarea:focus {
+  outline: 2px solid rgba(10,132,255,0.6);
+  outline-offset: 2px;
+}
+
+/* Visually hidden helper (for screen readers) */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0;
 }

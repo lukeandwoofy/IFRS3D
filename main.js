@@ -1,8 +1,8 @@
-// main.js — WebFS2025 bootstrap (complete, robust version)
+// main.js — WebFS2025 bootstrap (complete file)
 // - Safe keyboard handling
 // - Robust Cesium viewer + terrain initialization with fallbacks
 // - Module attach/init lifecycle with guarded main loop
-// - Spawn terrain sampling guarded to avoid runtime errors
+// - Loads aircraft model from Cesium Ion asset id or direct GLB URI (with fallbacks)
 
 import * as physics from './physics.js';
 import * as controls from './controls.js';
@@ -19,7 +19,9 @@ import * as multiplayer from './multiplayer.js';
 // Config and utilities
 // --------------------
 export const CONFIG = {
-  CESIUM_TOKEN: '', // set at build/injection time; do not commit secrets
+  CESIUM_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NDIwYmNkOS03MTExLTRjZGEtYjI0Yy01ZmIzYzJmOGFjNGEiLCJpZCI6MzM5NTE3LCJpYXQiOjE3NTczNTg4Mzd9.3gkVP8epIlHiy3MtC2GnDgLhvD4XbhfIsWfzuyYjDZQ',       // set at build/injection time; do not commit secrets
+  MODEL_ASSET_ID: '3713684',      // put your Cesium Ion asset id here (number), 0 = none
+  MODEL_URI: '',          // optional direct .glb URL (used if MODEL_ASSET_ID not set)
   VIEWER: {
     BASE_LAYER_PICKER: false,
     REQUEST_RENDER_MODE: true,
@@ -103,8 +105,7 @@ export const App = {
   viewer: null,
   planeEntity: null,
   camPosSmooth: null,
-  autopilot: null,
-  _localId: null
+  autopilot: null
 };
 
 // --------------------
@@ -228,17 +229,47 @@ export async function boot() {
 
     // initial position Cartesian (from radians stored in App)
     const startPos = Cesium.Cartesian3.fromRadians(App.lonRad, App.latRad, App.heightM);
-    // If you have a valid glTF URL or Cesium Ion asset, set model.uri to that.
-    // Leave empty to skip model loading (avoids glTF errors).
-    App.planeEntity = viewer.entities.add({
+
+    // Attempt to set up the plane entity using MODEL_ASSET_ID or MODEL_URI
+    let modelUriOrResource = null;
+    if (Number.isFinite(CONFIG.MODEL_ASSET_ID) && CONFIG.MODEL_ASSET_ID > 0) {
+      if (CONFIG.CESIUM_TOKEN) {
+        try {
+          modelUriOrResource = await Cesium.IonResource.fromAssetId(CONFIG.MODEL_ASSET_ID);
+        } catch (e) {
+          console.warn('[main] Failed to load Ion asset id', CONFIG.MODEL_ASSET_ID, e);
+          modelUriOrResource = null;
+        }
+      } else {
+        console.warn('[main] MODEL_ASSET_ID provided but CESIUM_TOKEN is empty; skipping Ion load');
+      }
+    }
+
+    // If Ion load failed and MODEL_URI is set, use that
+    if (!modelUriOrResource && CONFIG.MODEL_URI) {
+      modelUriOrResource = CONFIG.MODEL_URI;
+    }
+
+    // Add plane entity; only set model.uri if we have a valid resource to avoid Cesium trying to fetch HTML
+    const planeEntityConfig = {
       id: 'player-plane',
-      position: startPos,
-      model: {
-        uri: '', // set to a valid .glb URL or IonResource.fromAssetId(...) if available
+      position: startPos
+    };
+    if (modelUriOrResource) {
+      planeEntityConfig.model = {
+        uri: modelUriOrResource,
         scale: 1.0,
         minimumPixelSize: 48
-      }
-    });
+      };
+    } else {
+      // No model: optionally use a simple billboard or skip model entirely
+      planeEntityConfig.billboard = {
+        image: undefined,
+        scale: 1.0
+      };
+    }
+
+    App.planeEntity = viewer.entities.add(planeEntityConfig);
 
     // camera smoothing storage
     App.camPosSmooth = viewer.camera.position.clone ? viewer.camera.position.clone() : viewer.camera.position;
@@ -302,7 +333,7 @@ function loop(now) {
   safeCall(physics, 'update', App, dt);
   safeCall(camera, 'lateUpdate', dt);
   safeCall(weather, 'update', App, dt);
-  safeCall(ui, 'lateUpdate', dt);
+  safeCall(ui, 'lateUpdate', App, dt);
   safeCall(autopilot, 'update', App, dt);
   safeCall(atc, 'update', App, dt);
   safeCall(passenger, 'update', App, dt);
